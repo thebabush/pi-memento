@@ -1,0 +1,53 @@
+{
+  "name": "pi-memento",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Transactional control over pi's model-visible conversational context",
+  "license": "MIT",
+  "author": "Paolo Montesel",
+  "keywords": [
+    "pi",
+    "pi-extension",
+    "context",
+    "compaction",
+    "agent",
+    "transactions",
+    "memento"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "bin": {
+    "memento": "./bin/memento"
+  },
+  "exports": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./dist/index.js"
+    ]
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "memento": "./bin/memento",
+    "test": "vitest run src"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "0.84.3",
+    "@earendil-works/pi-ai": "0.84.3",
+    "@earendil-works/pi-coding-agent": "0.84.3",
+    "@earendil-works/pi-tui": "0.84.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

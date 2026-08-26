@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_path="${BASH_SOURCE[0]}"
+while [[ -L "$script_path" ]]; do
+  script_dir="$(cd -P "$(dirname "$script_path")" && pwd)"
+  link_target="$(readlink "$script_path")"
+  if [[ "$link_target" = /* ]]; then
+    script_path="$link_target"
+  else
+    script_path="$script_dir/$link_target"
+  fi
+done
+
+project_root="$(cd -P "$(dirname "$script_path")/.." && pwd)"
+pi_entry="$project_root/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js"
+extension_entry="$project_root/dist/index.js"
+
+if [[ ! -f "$pi_entry" ]]; then
+  printf 'pinned pi is not installed. Run: npm --prefix %s install\n' "$project_root" >&2
+  exit 1
+fi
+
+if [[ ! -f "$extension_entry" ]]; then
+  printf 'extension is not built. Run: npm --prefix %s run build\n' "$project_root" >&2
+  exit 1
+fi
+
+exec node "$pi_entry" -e "$extension_entry" "$@"

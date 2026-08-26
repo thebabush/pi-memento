@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img" aria-label="pi-memento: agents that edit their own memory">
+  <defs>
+    <marker id="sp-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#3fb950"/></marker>
+    <marker id="sp-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#d29922"/></marker>
+    <marker id="sp-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#e5697d"/></marker>
+  </defs>
+
+  <rect x="0" y="0" width="1280" height="640" fill="#0f111a"/>
+
+  <!-- left: identity -->
+  <text x="96" y="140" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="15" letter-spacing="4" fill="#6f7690">A PI EXTENSION</text>
+  <text x="96" y="225" font-family="Menlo,'SF Mono',monospace" font-size="78" font-weight="700" fill="#e6e9f2">pi-memento</text>
+  <text x="96" y="282" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="28" fill="#a8b0c6">agents that edit their own memory</text>
+
+  <rect x="96" y="320" width="90" height="38" rx="19" fill="none" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="141" y="344" text-anchor="middle" font-family="Menlo,'SF Mono',monospace" font-size="17" font-weight="700" fill="#3fb950">commit</text>
+  <rect x="200" y="320" width="100" height="38" rx="19" fill="none" stroke="#58a6ff" stroke-width="1.5"/>
+  <text x="250" y="344" text-anchor="middle" font-family="Menlo,'SF Mono',monospace" font-size="17" font-weight="700" fill="#58a6ff">compact</text>
+  <rect x="314" y="320" width="90" height="38" rx="19" fill="none" stroke="#d29922" stroke-width="1.5"/>
+  <text x="359" y="344" text-anchor="middle" font-family="Menlo,'SF Mono',monospace" font-size="17" font-weight="700" fill="#d29922">squash</text>
+  <rect x="418" y="320" width="90" height="38" rx="19" fill="none" stroke="#e5697d" stroke-width="1.5"/>
+  <text x="463" y="344" text-anchor="middle" font-family="Menlo,'SF Mono',monospace" font-size="17" font-weight="700" fill="#e5697d">revert</text>
+
+  <text x="96" y="565" font-family="Menlo,'SF Mono',monospace" font-size="17" fill="#6f7690">github.com/thebabush/pi-memento</text>
+
+  <!-- right: what survives -->
+  <rect x="700" y="96" width="215" height="30" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="807" y="116" text-anchor="middle" font-family="Menlo,'SF Mono',monospace" font-size="17" fill="#6f7690">&#8230;</text>
+  <rect x="985" y="96" width="215" height="30" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="1092" y="116" text-anchor="middle" font-family="Menlo,'SF Mono',monospace" font-size="17" fill="#6f7690">&#8230;</text>
+
+  <rect x="700" y="164" width="215" height="42" rx="8" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="807" y="191" text-anchor="middle" font-family="Menlo,'SF Mono',monospace" font-size="18" fill="#d6d9e4">the winning path</text>
+  <line x1="923" y1="185" x2="977" y2="185" stroke="#3fb950" stroke-width="2" marker-end="url(#sp-g)"/>
+  <rect x="985" y="164" width="215" height="42" rx="8" fill="#14261b" stroke="#3fb950" stroke-width="1.5"/>
+  <text x="1092" y="191" text-anchor="middle" font-family="Menlo,'SF Mono',monospace" font-size="18" font-weight="700" fill="#3fb950">kept</text>
+
+  <rect x="700" y="274" width="215" height="42" rx="8" fill="#161b22" stroke="#d29922" stroke-width="1.5"/>
+  <text x="807" y="301" text-anchor="middle" font-family="Menlo,'SF Mono',monospace" font-size="18" fill="#d6d9e4">forty tool calls</text>
+  <line x1="923" y1="295" x2="977" y2="295" stroke="#d29922" stroke-width="2" marker-end="url(#sp-a)"/>
+  <rect x="985" y="274" width="215" height="42" rx="8" fill="#271f0d" stroke="#d29922" stroke-width="1.5"/>
+  <text x="1092" y="301" text-anchor="middle" font-family="Menlo,'SF Mono',monospace" font-size="18" font-weight="700" fill="#d29922">one-line result</text>
+
+  <rect x="700" y="384" width="215" height="42" rx="8" fill="#161b22" stroke="#e5697d" stroke-width="1.5"/>
+  <text x="807" y="411" text-anchor="middle" font-family="Menlo,'SF Mono',monospace" font-size="18" fill="#d6d9e4">dead end</text>
+  <line x1="923" y1="405" x2="977" y2="405" stroke="#e5697d" stroke-width="2" marker-end="url(#sp-r)"/>
+  <rect x="985" y="384" width="215" height="42" rx="8" fill="#2b141a" stroke="#e5697d" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="1092" y="411" text-anchor="middle" font-family="Menlo,'SF Mono',monospace" font-size="18" font-weight="700" fill="#e5697d">a lesson</text>
+
+  <rect x="700" y="494" width="215" height="30" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="807" y="514" text-anchor="middle" font-family="Menlo,'SF Mono',monospace" font-size="17" fill="#6f7690">&#8230;</text>
+  <rect x="985" y="494" width="215" height="30" rx="6" fill="#161b22" stroke="#30363d"/>
+  <text x="1092" y="514" text-anchor="middle" font-family="Menlo,'SF Mono',monospace" font-size="17" fill="#6f7690">&#8230;</text>
+
+  <text x="807" y="560" text-anchor="middle" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="15" fill="#6f7690">history</text>
+  <text x="1092" y="560" text-anchor="middle" font-family="'Helvetica Neue',Helvetica,Arial,sans-serif" font-size="15" fill="#6f7690">context</text>
+</svg>
