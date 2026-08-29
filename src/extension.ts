@@ -3,6 +3,7 @@ import { defineTool, type ExtensionAPI, type ExtensionContext } from '@earendil-
 import { Text } from '@earendil-works/pi-tui';
 import { projectMessages } from './project.js';
 import { handleTransactionCompaction } from './pi-compaction.js';
+import { contextRecallTool, contextSearchTool } from './search-tools.js';
 import {
   assertExclusiveBoundary,
   assertHealthyReplay,
@@ -106,6 +107,7 @@ function createEndTool(pi: ExtensionAPI) {
   promptGuidelines: [
     'Use transaction_end to close the innermost open context transaction before finishing.',
     'A revert requires a carryforward takeaway: a short note on why the approach was abandoned, so the lesson survives even though the exploration is discarded.',
+    'Takeaways double as the search surface for context_search, so results and carryforwards should carry the concrete identifiers, error strings, and filenames from the work, not only prose conclusions.',
   ],
   parameters: Type.Object({
     disposition: StringEnum(['commit', 'compact', 'squash', 'revert'] as const),
@@ -221,6 +223,8 @@ export default function contextTransactionsExtension(pi: ExtensionAPI): void {
   pi.registerTool(createBeginTool(pi));
   pi.registerTool(createEndTool(pi));
   pi.registerTool(statusTool);
+  pi.registerTool(contextSearchTool);
+  pi.registerTool(contextRecallTool);
 
   pi.on('context', (event, ctx) => {
     const projected = projectMessages(event.messages, currentTransactions(ctx));

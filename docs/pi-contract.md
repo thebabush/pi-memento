@@ -88,6 +88,24 @@ Rules:
 
 The boundary tool's `toolCallId` is the message-level anchor. The current leaf ID is recorded as `boundaryEntryId`; when the tool executes, pi has synchronized the current assistant message into the session.
 
+The extension additionally registers two read-only search tools:
+
+```ts
+context_search({
+  query: string;
+  layer?: 'takeaways' | 'full';   // default 'takeaways'
+  scope?: 'branch' | 'session' | 'project'; // default 'branch'
+})
+
+context_recall({
+  entryId?: string;        // exactly one of entryId / transactionId
+  transactionId?: string;
+  sessionId?: string;      // defaults to the current session
+})
+```
+
+Both behave like `transaction_status`: read-only, no `appendEntry`, no exclusivity requirement, and they may coexist with other tool calls. Failures (an unopenable index, an unknown id, an unlocatable foreign session file) throw, like the transaction tools, and surface as error tool results. An empty search is not a failure: it returns a normal result suggesting the escalation path.
+
 ## Projection contract
 
 The `context` handler receives the current message list and returns a replacement list without changing session history. It:
@@ -153,6 +171,21 @@ Compaction details record:
 ```
 
 This enables safe migration and prevents future versions from assuming that an old summary respected transaction dispositions.
+
+## Search index sidecar
+
+The search tools are backed by a SQLite FTS5 index at `<sessionDir>/memento-index.sqlite3`, next to pi's per-project session files. It relies only on public read surfaces of the session manager:
+
+| Need | pi surface |
+|---|---|
+| Index location | `ctx.sessionManager.getSessionDir()` |
+| Live session identity | `getSessionId()` |
+| Live session entries (whole tree, append order) | `getEntries()` |
+| Active path and visibility | `getBranch()` |
+
+Other sessions in the same project are indexed by reading their JSONL files directly from the session directory; each file's path is recorded in `sync_state.file_path` so `context_recall` can reconstruct a foreign transaction body later. The live session is synced from memory rather than through `getSessionFile()`, so its `file_path` stays NULL. The sidecar never writes session files.
+
+The index is a derived, disposable artifact. Its schema is stamped via `PRAGMA user_version` (currently `INDEX_SCHEMA_VERSION = 2`); on any mismatch the schema is dropped and rebuilt empty, and lazy sync re-indexes from canonical history on the next search. Deleting the sidecar file is always safe. Syncing is lazy and incremental: each search syncs the live session's new entries, and `scope: 'project'` additionally scans sibling `*.jsonl` session files, skipping files whose size has not changed.
 
 ## Branching and lifecycle
 

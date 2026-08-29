@@ -267,6 +267,8 @@ describe('contextTransactionsExtension', () => {
     const harness = createHarness();
 
     expect([...harness.tools.keys()].sort()).toEqual([
+      'context_recall',
+      'context_search',
       'transaction_begin',
       'transaction_end',
       'transaction_status',
@@ -297,6 +299,16 @@ describe('contextTransactionsExtension', () => {
 
     expect(earlyOpen).toBeDefined();
     expect(earlyOpen).toMatch(/long or multi-step/i);
+  });
+
+  it('tells the model to write searchable takeaways with concrete identifiers', () => {
+    const harness = createHarness();
+
+    const guidelines = getTool(harness, 'transaction_end').promptGuidelines ?? [];
+    const searchable = guidelines.find((guideline) => /context_search/.test(guideline));
+
+    expect(searchable).toBeDefined();
+    expect(searchable).toMatch(/identifiers, error strings, and filenames/);
   });
 
   it('warns that a transaction does not roll back side effects', () => {

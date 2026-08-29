@@ -58,6 +58,23 @@ Open one when a block of work is likely to be noisy, exploratory, disposable, co
 
 The property that matters is atomicity at the semantic level: this entire episode was one unit of thought; decide what representation of that episode should survive.
 
+## Searching forgotten context
+
+The extension also registers two read-only tools:
+
+```
+context_search({ query, layer?, scope? })
+context_recall({ entryId? | transactionId?, sessionId? })
+```
+
+`context_search` searches the agent's own history, including everything the projection hides: bodies of squashed, reverted, and compacted transactions, material dropped by compaction, and work left on abandoned branches. It is backed by a per-project SQLite FTS5 index, `memento-index.sqlite3`, stored next to pi's session files. The index is a derived, disposable artifact: it is rebuilt from canonical history on any schema mismatch and can be deleted at any time.
+
+Defaults are narrow and cheap. `layer` defaults to `takeaways` (transaction purposes, results, summaries, and carryforwards) and `scope` defaults to `branch` (the active branch of the current session). Escalate `layer` to `full` to search complete entry text, and `scope` to `session` or `project` to include other branches and other sessions. Each hit is marked `visible` or `forgotten` relative to the current model context, or labeled with its takeaway disposition or originating session.
+
+`context_recall` pulls the full stored content behind a hit: a single entry by `entryId`, or a whole transaction body (header plus everything between its boundaries) by `transactionId`.
+
+Nothing is ever lost. Transactions and compaction only hide content from the projected context; search reads the canonical history underneath.
+
 ## Build & run
 
 pi-memento is a plugin, not a vendored fork. It runs a project-local, pinned pi that is a separate binary from any globally installed `pi`; running it does not touch your global install.
