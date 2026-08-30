@@ -63,13 +63,18 @@ function createBeginTool(pi: ExtensionAPI) {
   promptGuidelines: [
     'Open a transaction at the start of speculative or exploratory work whose step-by-step detail you will not need afterward — reverse engineering, dead-end-heavy debugging, or sifting large dumps for a few facts — then squash or compact it when done so the exploration noise leaves your context.',
     'On a long or multi-step task, open a transaction near the start so you can later compact your own working history into a summary while keeping the user\'s original request in view; a transaction cannot be opened retroactively over work already done.',
-    'Transactions nest: you may open one inside another to isolate a sub-investigation, and each closes independently in last-opened-first order.',
+    'Transactions nest: when a sub-experiment starts mid-transaction whose detail you will not need even for the parent\'s own summary, open a nested transaction for it and close it (last-opened-first) before closing the parent.',
     'A transaction only projects conversational context — it never rolls back the world. Reverting, squashing, or compacting does not undo files written, commands run, or any other side effect, so never treat an open transaction as a sandbox for destructive or irreversible actions.',
     'Call transaction_begin and transaction_end as exclusive tool calls, never alongside another tool call.',
     'Close every transaction when the speculative work is complete.',
   ],
   parameters: Type.Object({
-    purpose: Type.Optional(Type.String({ description: 'Short description of the speculative work' })),
+    purpose: Type.Optional(
+      Type.String({
+        description:
+          'Short description of the speculative work. Searchable later via context_search, so include concrete identifiers where possible.',
+      }),
+    ),
   }),
   executionMode: 'sequential',
   async execute(toolCallId, params, _signal, _onUpdate, ctx) {

@@ -237,16 +237,19 @@ export const contextSearchTool = defineTool({
   name: 'context_search',
   label: 'Search forgotten context',
   description:
-    'Search canonical session history for this project, including work hidden from the current context by squash, revert, compact, compaction, or abandoned branches.',
+    'Search canonical session history for this project, including work hidden from the current context by a squash, revert, or compact disposition, dropped by context compaction, or left on abandoned branches.',
   promptSnippet: 'Search your own forgotten conversational history.',
   promptGuidelines: [
     'Use context_search to search your own forgotten history: work that was reverted, squashed, or compacted away, lost to compaction, or left on abandoned branches. Nothing is ever lost; projections only hide canonical history.',
-    "context_search defaults are narrow and cheap: final takeaways on the current branch. Escalate layer to 'full' or scope to 'session'/'project' only when the defaults do not surface what you need.",
+    "context_search defaults are narrow and cheap: final takeaways on the current branch. Escalate layer to 'full' for complete entry text, scope to 'session' for abandoned branches, or scope to 'project' to search past sessions in this project, only when the defaults do not surface what you need.",
     "Use context_recall with a hit's entryId or transactionId (plus sessionId for hits from other sessions) to pull the full content behind a hit.",
     'Wrap a noisy search-and-recall excursion in a transaction and squash it when done, so the excursion itself does not pollute your context.',
   ],
   parameters: Type.Object({
-    query: Type.String({ description: 'Search terms; terms of 3+ characters (trigram index)' }),
+    query: Type.String({
+      description:
+        'SQLite FTS5 MATCH expression; words shorter than 3 characters cannot match (trigram index)',
+    }),
     layer: Type.Optional(StringEnum(['takeaways', 'full'] as const)),
     scope: Type.Optional(StringEnum(['branch', 'session', 'project'] as const)),
   }),
