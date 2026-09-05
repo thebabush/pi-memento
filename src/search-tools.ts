@@ -13,8 +13,8 @@ import {
 import { closeIndexDb, openIndexDb, type IndexDb } from './search-db.js';
 import { readSessionFileEntries, searchableText, syncEntries, syncProject } from './search-index.js';
 import {
+  countClosedTakeaways,
   searchIndex,
-  type EntrySearchHit,
   type SearchHit,
   type SearchLayer,
   type SearchOptions,
@@ -60,8 +60,9 @@ interface SearchToolResult<Details> {
 interface SearchDetails {
   layer: SearchLayer;
   scope: SearchScope;
-  total: number;
+  total: number; // hits the index returned, visible ones included
   shown: number;
+  visibleOmitted: number;
 }
 
 interface EntryRecallDetails {
@@ -115,6 +116,7 @@ interface RecalledTakeawayRow {
   disposition?: string;
   takeaway?: string; // summary or result
   carryforward?: string;
+  next?: string;
   beginEntryId?: EntryId;
   endEntryId?: EntryId;
 }
@@ -128,6 +130,7 @@ function decodeRecalledTakeawayRow(row: IndexRow): RecalledTakeawayRow {
     disposition: asText(row.disposition),
     takeaway: asText(row.summary) ?? asText(row.result),
     carryforward: asText(row.carryforward),
+    next: asText(row.next),
     beginEntryId: beginEntryId === undefined ? undefined : asEntryId(beginEntryId),
     endEntryId: endEntryId === undefined ? undefined : asEntryId(endEntryId),
   };
@@ -138,16 +141,13 @@ function normalized(value: string | undefined): string | undefined {
   return result ? result : undefined;
 }
 
-function entryMarker(hit: EntrySearchHit, currentSessionId: SessionId, visible: ReadonlySet<EntryId>): string {
-  if (hit.sessionId !== currentSessionId) return 'other session';
-  return visible.has(hit.entryId) ? 'visible' : 'forgotten';
-}
-
-function renderHit(hit: SearchHit, currentSessionId: SessionId, visible: ReadonlySet<EntryId>): string {
+function renderHit(hit: SearchHit, currentSessionId: SessionId): string {
   const foreign = hit.sessionId !== currentSessionId;
   switch (hit.kind) {
     case 'entry': {
-      const marker = entryMarker(hit, currentSessionId, visible);
+      // Visible entries of the current session are dropped before rendering,
+      // so what remains is either forgotten or from another session.
+      const marker = foreign ? 'other session' : 'forgotten';
       const provenance = foreign ? ` session=${hit.sessionId}` : '';
       const recallSession = foreign ? ` sessionId=${hit.sessionId}` : '';
       return [
@@ -161,6 +161,7 @@ function renderHit(hit: SearchHit, currentSessionId: SessionId, visible: Readonl
       const lines = [`takeaway (${marker})${hit.purpose ? ` purpose: ${hit.purpose}` : ''}`];
       if (hit.takeaway) lines.push(`  ${hit.takeaway}`);
       if (hit.carryforward) lines.push(`  carryforward: ${hit.carryforward}`);
+      if (hit.next) lines.push(`  next: ${hit.next}`);
       lines.push(`  recall: transactionId=${hit.transactionId}${foreign ? ` sessionId=${hit.sessionId}` : ''}`);
       return lines.join('\n');
     }
@@ -169,16 +170,33 @@ function renderHit(hit: SearchHit, currentSessionId: SessionId, visible: Readonl
   }
 }
 
-function emptyResultText(query: string, layer: SearchLayer, scope: SearchScope): string {
+// Escalation hint for a result the model should widen. The layer hint is
+// skipped when the caller already knows the layer is not the problem.
+function escalationHint(scope: SearchScope, layer?: SearchLayer): string {
   const escalations: string[] = [];
   if (layer === 'takeaways') escalations.push("layer 'full' to search complete entry text");
   if (scope === 'branch') escalations.push("scope 'session' to include other branches");
   if (scope !== 'project') escalations.push("scope 'project' to include other sessions");
-  const hint = escalations.length > 0 ? ` Try ${escalations.join(', then ')}.` : '';
+  return escalations.length > 0 ? ` Try ${escalations.join(', then ')}.` : '';
+}
+
+function emptyResultText(query: string, layer: SearchLayer, scope: SearchScope): string {
   return (
-    `No matches for "${query}" (layer=${layer}, scope=${scope}).${hint}` +
+    `No matches for "${query}" (layer=${layer}, scope=${scope}).${escalationHint(scope, layer)}` +
     ' Note: terms shorter than 3 characters cannot match (trigram index).'
   );
+}
+
+function noTakeawaysText(scope: SearchScope): string {
+  return (
+    `No takeaways exist yet (scope=${scope}): no transaction has closed with a result, summary, carryforward, or next action, ` +
+    `so there is nothing to search at this layer.${escalationHint(scope)}` +
+    " Use layer 'full' only for text that is no longer in your context."
+  );
+}
+
+function hitCount(count: number): string {
+  return `${count} hit${count === 1 ? '' : 's'}`;
 }
 
 // Appended when the branch-scope scan budget cut the search short.
@@ -205,6 +223,7 @@ function scopeOptions(
 }
 
 interface RenderSearchOptions {
+  query: string;
   hits: SearchHit[];
   layer: SearchLayer;
   scope: SearchScope;
@@ -214,10 +233,27 @@ interface RenderSearchOptions {
 }
 
 function renderSearchResult(options: RenderSearchOptions): SearchToolResult<SearchDetails> {
-  const { hits, layer, scope, scanExhausted } = options;
-  const blocks = hits.map((hit) => renderHit(hit, options.currentSessionId, options.visible));
-  const parts = [`${hits.length} hit${hits.length === 1 ? '' : 's'} (layer=${layer}, scope=${scope})`];
-  let used = parts[0]!.length;
+  const { query, hits, layer, scope, currentSessionId, visible, scanExhausted } = options;
+  // An entry the model can already see in its context is noise here; only its
+  // count is reported. Takeaways and other sessions' entries are never visible.
+  const rendered = hits.filter(
+    (hit) => hit.kind !== 'entry' || hit.sessionId !== currentSessionId || !visible.has(hit.entryId),
+  );
+  const omitted = hits.length - rendered.length;
+  const scanNote = scanExhausted ? '' : `\n\n${SCAN_CUT_SHORT_NOTE}`;
+  const details = { layer, scope, total: hits.length, visibleOmitted: omitted };
+  if (rendered.length === 0) {
+    const text =
+      `All ${hitCount(hits.length)} for "${query}" ${hits.length === 1 ? 'is' : 'are'} already visible in your context; ` +
+      `nothing forgotten matches (layer=${layer}, scope=${scope}).${escalationHint(scope, layer)}`;
+    return textResult(text + scanNote, { ...details, shown: 0 });
+  }
+
+  const blocks = rendered.map((hit) => renderHit(hit, currentSessionId));
+  let header = `${hitCount(rendered.length)} (layer=${layer}, scope=${scope})`;
+  if (omitted > 0) header += `; ${omitted} visible hit${omitted === 1 ? '' : 's'} omitted (already in your context)`;
+  const parts = [header];
+  let used = header.length;
   let shown = 0;
   for (const block of blocks) {
     if (used + block.length + 2 > SEARCH_CHAR_BUDGET) break;
@@ -229,8 +265,7 @@ function renderSearchResult(options: RenderSearchOptions): SearchToolResult<Sear
   if (shown < blocks.length) {
     text += `\n\n…truncated: ${blocks.length - shown} more hit${blocks.length - shown === 1 ? '' : 's'} not shown; narrow the query.`;
   }
-  if (!scanExhausted) text += `\n\n${SCAN_CUT_SHORT_NOTE}`;
-  return textResult(text, { layer, scope, total: hits.length, shown });
+  return textResult(text + scanNote, { ...details, shown });
 }
 
 export const contextSearchTool = defineTool({
@@ -267,23 +302,19 @@ export const contextSearchTool = defineTool({
     }
 
     const branch = ctx.sessionManager.getBranch();
-    const { hits, scanExhausted } = searchIndex(db, {
-      query,
-      layer,
-      ...scopeOptions(scope, sessionId, branch),
-    });
+    const scoped = scopeOptions(scope, sessionId, branch);
+    const { hits, scanExhausted } = searchIndex(db, { query, layer, ...scoped });
     if (hits.length === 0) {
       const suffix = scanExhausted ? '' : `\n\n${SCAN_CUT_SHORT_NOTE}`;
-      return textResult(emptyResultText(query, layer, scope) + suffix, {
-        layer,
-        scope,
-        total: 0,
-        shown: 0,
-      });
+      const text =
+        layer === 'takeaways' && countClosedTakeaways(db, scoped) === 0
+          ? noTakeawaysText(scope)
+          : emptyResultText(query, layer, scope);
+      return textResult(text + suffix, { layer, scope, total: 0, shown: 0, visibleOmitted: 0 });
     }
 
     const visible = computeVisibleEntryIds(branch);
-    return renderSearchResult({ hits, layer, scope, currentSessionId: sessionId, visible, scanExhausted });
+    return renderSearchResult({ query, hits, layer, scope, currentSessionId: sessionId, visible, scanExhausted });
   },
 });
 
@@ -327,7 +358,7 @@ function recallTransaction(
 ): SearchToolResult<RecallDetails> {
   const row = db.database
     .prepare(
-      `SELECT purpose, disposition, summary, result, carryforward, begin_entry_id, end_entry_id
+      `SELECT purpose, disposition, summary, result, carryforward, next, begin_entry_id, end_entry_id
        FROM takeaways WHERE session_id = ? AND transaction_id = ?`,
     )
     .get(sessionId, transactionId);
@@ -388,6 +419,7 @@ function recallTransaction(
   headerLines.push(`Disposition: ${takeawayRow.disposition ?? 'open'}`);
   if (takeawayRow.takeaway) headerLines.push(`Takeaway: ${takeawayRow.takeaway}`);
   if (takeawayRow.carryforward) headerLines.push(`Carryforward: ${takeawayRow.carryforward}`);
+  if (takeawayRow.next) headerLines.push(`Next: ${takeawayRow.next}`);
   headerLines.push(`--- body (${bodyLines.length} entries) ---`);
 
   let text = `${headerLines.join('\n')}\n${bodyLines.join('\n\n')}`;

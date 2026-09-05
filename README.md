@@ -35,7 +35,7 @@ The extension registers three tools:
 
 ```
 transaction_begin({ purpose? })
-transaction_end({ disposition, result?, carryforward? })
+transaction_end({ disposition, result?, carryforward?, next? })
 transaction_status()
 ```
 
@@ -45,18 +45,22 @@ transaction_status()
 
 | Disposition | Effect on projected context | Notes |
 |---|---|---|
-| `commit`  | Keeps the body inline, as if no transaction had wrapped it. | No `result`/`carryforward`. |
-| `compact` | Replaces the body with a summary the extension **generates via a model call**. | The only disposition that calls the model. Optional `carryforward`. |
-| `squash`  | Replaces the body with an explicit `result` string the agent writes itself. | `result` required and non-empty; no model call. Optional `carryforward`. |
-| `revert`  | Removes the body entirely. | **Requires** a non-empty `carryforward`, so a dead end still leaves its lesson. |
+| `commit`  | Keeps the body inline, as if no transaction had wrapped it. | No `result`/`carryforward`/`next`. |
+| `compact` | Replaces the body with a summary the extension **generates via a model call**. | The only disposition that calls the model. Optional `carryforward` and `next`. |
+| `squash`  | Replaces the body with an explicit `result` string the agent writes itself. | `result` required and non-empty; no model call. Optional `carryforward` and `next`. |
+| `revert`  | Removes the body entirely. | **Requires** a non-empty `carryforward` **and** a non-empty `next`, so a dead end leaves both its lesson and the action to take instead. |
 
 `carryforward` is a small durable lesson or instruction that survives the projection: the one thing you want to keep even when the exploration itself is compacted, squashed, or discarded.
+
+`next` is the concrete next action to take once the transaction closes; on a revert it is required, so the abandoned approach is replaced by what to do instead rather than re-investigated.
 
 ## When to open a transaction
 
 Open one when a block of work is likely to be noisy, exploratory, disposable, compressible, worth keeping only as a conclusion, or worth abandoning while retaining one lesson.
 
 The property that matters is atomicity at the semantic level: this entire episode was one unit of thought; decide what representation of that episode should survive.
+
+While a transaction is open, the extension counts tool calls since its last boundary (its begin, or the end of its latest closed nested transaction) and every `PI_MEMENTO_NUDGE_EVERY` of them (default 20; `0` disables) appends a short reminder to the tool result: open a nested transaction if the current stretch is a sub-experiment, or close the transaction if its work is done. The reminder is persisted inside the tool result, so the prompt prefix stays append-only.
 
 ## Searching forgotten context
 
@@ -69,7 +73,7 @@ context_recall({ entryId? | transactionId?, sessionId? })
 
 `context_search` searches the agent's own history, including everything the projection hides: bodies of squashed, reverted, and compacted transactions, material dropped by compaction, and work left on abandoned branches. It is backed by a per-project SQLite FTS5 index, `memento-index.sqlite3`, stored next to pi's session files. The index is a derived, disposable artifact: it is rebuilt from canonical history on any schema mismatch and can be deleted at any time.
 
-Defaults are narrow and cheap. `layer` defaults to `takeaways` (transaction purposes, results, summaries, and carryforwards) and `scope` defaults to `branch` (the active branch of the current session). Escalate `layer` to `full` to search complete entry text, and `scope` to `session` or `project` to include other branches and other sessions. Each hit is marked `visible` or `forgotten` relative to the current model context, or labeled with its takeaway disposition or originating session.
+Defaults are narrow and cheap. `layer` defaults to `takeaways` (transaction purposes, results, summaries, carryforwards, and next actions) and `scope` defaults to `branch` (the active branch of the current session). Escalate `layer` to `full` to search complete entry text, and `scope` to `session` or `project` to include other branches and other sessions. Hits already visible in the current model context are omitted and only counted in the result header, so what is rendered is what the model has actually lost sight of; the remaining entry hits are marked `forgotten` or labeled with their originating session, and takeaway hits carry their disposition. An empty `takeaways` result when no transaction has closed yet says so explicitly instead of suggesting a wider layer.
 
 `context_recall` pulls the full stored content behind a hit: a single entry by `entryId`, or a whole transaction body (header plus everything between its boundaries) by `transactionId`.
 

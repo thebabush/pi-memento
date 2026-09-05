@@ -8,6 +8,7 @@ import {
   assertExclusiveBoundary,
   assertHealthyReplay,
   currentTransactions,
+  toolCallsSinceLastBoundary,
 } from './session.js';
 import { summarizeOpenTransaction } from './summarize.js';
 import {
@@ -18,16 +19,31 @@ import {
 } from './types.js';
 
 const STATUS_KEY = 'context-transactions';
+// Tool calls between nesting nudges while a transaction is open; overridden by
+// PI_MEMENTO_NUDGE_EVERY, where 0 disables the nudge.
+const DEFAULT_NUDGE_EVERY = 20;
 
 function normalized(value: string | undefined): string | undefined {
   const result = value?.trim();
   return result ? result : undefined;
 }
 
+function nudgeEvery(): number {
+  const raw = process.env.PI_MEMENTO_NUDGE_EVERY;
+  if (raw === undefined || raw.trim() === '') return DEFAULT_NUDGE_EVERY;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : DEFAULT_NUDGE_EVERY;
+}
+
+function isMementoTool(name: string): boolean {
+  return name.startsWith('transaction_') || name.startsWith('context_');
+}
+
 interface RetainedContent {
   label: string;
   value: string;
   carryforward?: string;
+  next?: string;
 }
 
 function retainedContent(event: TransactionEndEvent): RetainedContent | undefined {
@@ -35,11 +51,11 @@ function retainedContent(event: TransactionEndEvent): RetainedContent | undefine
     case 'commit':
       return undefined;
     case 'compact':
-      return { label: 'Summary', value: event.summary, carryforward: event.carryforward };
+      return { label: 'Summary', value: event.summary, carryforward: event.carryforward, next: event.next };
     case 'squash':
-      return { label: 'Result', value: event.result, carryforward: event.carryforward };
+      return { label: 'Result', value: event.result, carryforward: event.carryforward, next: event.next };
     case 'revert':
-      return { label: 'Carryforward', value: event.carryforward };
+      return { label: 'Carryforward', value: event.carryforward, next: event.next };
   }
 }
 
@@ -63,7 +79,7 @@ function createBeginTool(pi: ExtensionAPI) {
   promptGuidelines: [
     'Open a transaction at the start of speculative or exploratory work whose step-by-step detail you will not need afterward — reverse engineering, dead-end-heavy debugging, or sifting large dumps for a few facts — then squash or compact it when done so the exploration noise leaves your context.',
     'On a long or multi-step task, open a transaction near the start so you can later compact your own working history into a summary while keeping the user\'s original request in view; a transaction cannot be opened retroactively over work already done.',
-    'Transactions nest: when a sub-experiment starts mid-transaction whose detail you will not need even for the parent\'s own summary, open a nested transaction for it and close it (last-opened-first) before closing the parent.',
+    'Nest aggressively: inside an open transaction, open a nested transaction the moment you start a sub-experiment — an implementation attempt you might abandon, a hypothesis to test, a dump to sift — and close it before returning to the parent\'s main line. Nested detail never reaches the parent\'s summary. A long stretch of tool calls without a boundary is a sign you should have nested.',
     'A transaction only projects conversational context — it never rolls back the world. Reverting, squashing, or compacting does not undo files written, commands run, or any other side effect, so never treat an open transaction as a sandbox for destructive or irreversible actions.',
     'Call transaction_begin and transaction_end as exclusive tool calls, never alongside another tool call.',
     'Close every transaction when the speculative work is complete.',
@@ -111,7 +127,8 @@ function createEndTool(pi: ExtensionAPI) {
   promptSnippet: 'Commit, compact, squash, or revert the current context transaction.',
   promptGuidelines: [
     'Use transaction_end to close the innermost open context transaction before finishing.',
-    'A revert requires a carryforward takeaway: a short note on why the approach was abandoned, so the lesson survives even though the exploration is discarded.',
+    'A revert requires two things: a carryforward (why the approach was abandoned) and a next action (what to do instead). Together they let the lesson survive without the exploration.',
+    'After a revert or squash, act on the projected carryforward and next action directly. Do not open a new transaction whose purpose is to re-verify a lesson that the closed work already established.',
     'Takeaways double as the search surface for context_search, so results and carryforwards should carry the concrete identifiers, error strings, and filenames from the work, not only prose conclusions.',
   ],
   parameters: Type.Object({
@@ -121,6 +138,12 @@ function createEndTool(pi: ExtensionAPI) {
       Type.String({
         description:
           'Small durable lesson or future instruction. Required for revert: the takeaway explaining why the work was abandoned.',
+      }),
+    ),
+    next: Type.Optional(
+      Type.String({
+        description:
+          'Concrete next action to take after this transaction. Required for revert: what to do instead of the abandoned approach, so it is not re-investigated.',
       }),
     ),
   }),
@@ -135,6 +158,7 @@ function createEndTool(pi: ExtensionAPI) {
     const disposition: TransactionDisposition = params.disposition;
     const result = normalized(params.result);
     const carryforward = normalized(params.carryforward);
+    const next = normalized(params.next);
     if (disposition === 'squash' && !result) throw new Error('A squash disposition requires a non-empty result');
     if (disposition !== 'squash' && result) throw new Error('result is only valid with the squash disposition');
     if (disposition === 'commit' && carryforward) {
@@ -142,6 +166,10 @@ function createEndTool(pi: ExtensionAPI) {
     }
     if (disposition === 'revert' && !carryforward) {
       throw new Error('A revert disposition requires a non-empty carryforward takeaway explaining why the work was abandoned');
+    }
+    if (disposition === 'commit' && next) throw new Error('next is only valid with compact, squash, or revert');
+    if (disposition === 'revert' && !next) {
+      throw new Error('A revert disposition requires a non-empty next action: what to do instead of the abandoned approach');
     }
 
     let summary: string | undefined;
@@ -166,17 +194,17 @@ function createEndTool(pi: ExtensionAPI) {
         break;
       case 'compact':
         if (!summary) throw new Error('Compact summarization did not produce a summary');
-        event = { ...eventBase, disposition, summary, ...(carryforward && { carryforward }) };
+        event = { ...eventBase, disposition, summary, ...(carryforward && { carryforward }), ...(next && { next }) };
         break;
       case 'squash':
         if (!result) throw new Error('A squash disposition requires a non-empty result');
-        event = { ...eventBase, disposition, result, ...(carryforward && { carryforward }) };
+        event = { ...eventBase, disposition, result, ...(carryforward && { carryforward }), ...(next && { next }) };
         break;
       case 'revert':
         if (!carryforward) {
           throw new Error('A revert disposition requires a non-empty carryforward takeaway explaining why the work was abandoned');
         }
-        event = { ...eventBase, disposition, carryforward };
+        event = { ...eventBase, disposition, carryforward, ...(next && { next }) };
         break;
     }
     pi.appendEntry(TRANSACTION_ENTRY_TYPE, event);
@@ -196,6 +224,7 @@ function createEndTool(pi: ExtensionAPI) {
     if (expanded) {
       text += `\n${theme.fg('dim', `${retained.label}:`)} ${retained.value}`;
       if (retained.carryforward) text += `\n${theme.fg('dim', 'Carryforward:')} ${retained.carryforward}`;
+      if (retained.next) text += `\n${theme.fg('dim', 'Next:')} ${retained.next}`;
     } else {
       const preview = retained.value.replace(/\s+/g, ' ').slice(0, 80);
       const ellipsis = retained.value.length > 80 ? '…' : '';
@@ -239,6 +268,29 @@ export default function contextTransactionsExtension(pi: ExtensionAPI): void {
 
   pi.on('session_start', (_event, ctx) => updateStatus(ctx));
   pi.on('session_tree', (_event, ctx) => updateStatus(ctx));
+
+  // The nudge rides on the tool result rather than on a synthetic message
+  // injected in the context event: it is persisted inside the result, so the
+  // prompt prefix stays append-only and the provider's prompt cache survives.
+  pi.on('tool_result', (event, ctx) => {
+    if (isMementoTool(event.toolName)) return undefined;
+    const every = nudgeEvery();
+    if (every === 0) return undefined;
+    const replay = currentTransactions(ctx);
+    const transaction = replay.openStack.at(-1);
+    if (replay.diagnostics.length > 0 || !transaction) return undefined;
+    const persisted = toolCallsSinceLastBoundary(ctx.sessionManager.getBranch(), transaction);
+    if (persisted === undefined) return undefined;
+    // The result this event carries is not on the branch yet; count it here.
+    const count = persisted + 1;
+    if (count % every !== 0) return undefined;
+    const name = transaction.begin.purpose ?? transaction.transactionId;
+    const text =
+      `[memento] ${count} tool calls since the last boundary of transaction "${name}". ` +
+      'If this stretch is a sub-experiment whose detail the parent summary will not need, open a nested transaction_begin now; ' +
+      "if the transaction's work is done, close it with transaction_end.";
+    return { content: [...event.content, { type: 'text', text }] };
+  });
 
   pi.on('session_before_compact', handleTransactionCompaction);
 }

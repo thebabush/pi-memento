@@ -59,6 +59,7 @@ function upsertTakeaway(db: IndexDb, sessionId: SessionId, entryId: EntryId, eve
       event.summary ?? null,
       event.result ?? null,
       event.carryforward ?? null,
+      event.next ?? null,
       entryId,
     );
   }
@@ -71,6 +72,7 @@ function upsertTakeaway(db: IndexDb, sessionId: SessionId, entryId: EntryId, eve
     row.purpose ?? null,
     row.summary ?? row.result ?? null,
     row.carryforward ?? null,
+    row.next ?? null,
   );
 }
 

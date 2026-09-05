@@ -1,7 +1,13 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { ExtensionContext, SessionEntry } from '@earendil-works/pi-coding-agent';
 import { describe, expect, it } from 'vitest';
-import { assertExclusiveBoundary, assertHealthyReplay, transactionEvents } from './session.js';
+import { replayTransactions } from './replay.js';
+import {
+  assertExclusiveBoundary,
+  assertHealthyReplay,
+  toolCallsSinceLastBoundary,
+  transactionEvents,
+} from './session.js';
 import { TRANSACTION_ENTRY_TYPE, type ReplayResult, type TransactionEvent } from './types.js';
 
 let clock = 0;
@@ -59,6 +65,17 @@ function customEntry(id: string, customType: string, data: unknown): SessionEntr
 
 function toolCall(id: string, name: string): ToolCallPart {
   return { type: 'toolCall', id, name, arguments: {} };
+}
+
+function toolResultEntry(id: string, toolCallId: string, toolName = 'read_file'): SessionEntry {
+  return messageEntry(id, {
+    role: 'toolResult',
+    toolCallId,
+    toolName,
+    content: [{ type: 'text', text: 'ok' }],
+    isError: false,
+    timestamp: clock++,
+  });
 }
 
 function contextWithLeaf(leaf: SessionEntry | undefined): ExtensionContext {
@@ -180,5 +197,83 @@ describe('assertExclusiveBoundary', () => {
     expect(() => assertExclusiveBoundary(contextWithLeaf(leaf), 'call-1', 'transaction_end')).toThrow(
       'transaction_end must be the only tool call in its assistant message',
     );
+  });
+});
+
+describe('toolCallsSinceLastBoundary', () => {
+  const outerBegin: TransactionEvent = {
+    version: 1,
+    kind: 'begin',
+    transactionId: 'outer',
+    boundaryToolCallId: 'outer-begin-call',
+    boundaryEntryId: 'outer-begin',
+  };
+  const innerBegin: TransactionEvent = {
+    version: 1,
+    kind: 'begin',
+    transactionId: 'inner',
+    parentTransactionId: 'outer',
+    boundaryToolCallId: 'inner-begin-call',
+    boundaryEntryId: 'inner-begin',
+  };
+  const innerEnd: TransactionEvent = {
+    version: 1,
+    kind: 'end',
+    transactionId: 'inner',
+    disposition: 'commit',
+    boundaryToolCallId: 'inner-end-call',
+    boundaryEntryId: 'inner-end',
+  };
+
+  // Mirrors pi's append order: the assistant message holding the boundary
+  // call, the custom entry the tool appends, then the boundary's tool result.
+  function boundary(
+    entryId: string,
+    toolName: 'transaction_begin' | 'transaction_end',
+    event: TransactionEvent,
+  ): SessionEntry[] {
+    return [
+      assistantEntry(entryId, [toolCall(event.boundaryToolCallId, toolName)]),
+      customEntry(`${entryId}-metadata`, TRANSACTION_ENTRY_TYPE, event),
+      toolResultEntry(`${entryId}-result`, event.boundaryToolCallId, toolName),
+    ];
+  }
+
+  function call(id: string): SessionEntry[] {
+    return [assistantEntry(`${id}-call`, [toolCall(id, 'read_file')]), toolResultEntry(`${id}-result`, id)];
+  }
+
+  function innermost(branch: SessionEntry[]) {
+    const record = replayTransactions(transactionEvents(branch)).openStack.at(-1);
+    if (!record) throw new Error('expected an open transaction');
+    return record;
+  }
+
+  it("counts tool results after the begin boundary, not the boundary's own result", () => {
+    const opened = [userEntry('user', 'hello'), ...call('call-0'), ...boundary('outer-begin', 'transaction_begin', outerBegin)];
+    expect(toolCallsSinceLastBoundary(opened, innermost(opened))).toBe(0);
+
+    const worked = [...opened, ...call('call-1'), ...call('call-2'), ...call('call-3')];
+    expect(toolCallsSinceLastBoundary(worked, innermost(worked))).toBe(3);
+  });
+
+  it('restarts the count at the end boundary of the latest closed child', () => {
+    const branch = [
+      ...boundary('outer-begin', 'transaction_begin', outerBegin),
+      ...call('call-1'),
+      ...call('call-2'),
+      ...boundary('inner-begin', 'transaction_begin', innerBegin),
+      ...call('call-3'),
+      ...boundary('inner-end', 'transaction_end', innerEnd),
+      ...call('call-4'),
+    ];
+
+    expect(toolCallsSinceLastBoundary(branch, innermost(branch))).toBe(1);
+  });
+
+  it('returns undefined when no boundary entry is on the branch', () => {
+    const branch = [customEntry('outer-begin-metadata', TRANSACTION_ENTRY_TYPE, outerBegin), ...call('call-1')];
+
+    expect(toolCallsSinceLastBoundary(branch, innermost(branch))).toBeUndefined();
   });
 });

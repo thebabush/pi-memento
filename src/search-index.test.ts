@@ -321,6 +321,32 @@ describe('syncEntries takeaways', () => {
     expect(matchTakeawayIds('carryforward: "multiline headers"')).toEqual(['tx-1']);
     expect(matchTakeawayIds('takeaway: "multiline headers"')).toEqual([]);
   });
+
+  it('indexes the next action in its own column', () => {
+    syncEntries(db, asSessionId('sess'), [
+      transactionEntry('begin-1', begin('tx-1', 'begin-1')),
+      transactionEntry(
+        'end-1',
+        endEvent({
+          version: 1,
+          kind: 'end',
+          transactionId: 'tx-1',
+          disposition: 'revert',
+          carryforward: 'the legacy parser cannot handle multiline headers',
+          next: 'switch the ingest path to the streaming parser',
+          boundaryToolCallId: 'tx-1-end-call',
+          boundaryEntryId: 'end-1',
+        }),
+      ),
+    ]);
+
+    const row = db.statements.getTakeaway.get('sess', 'tx-1');
+    expect(row?.next).toBe('switch the ingest path to the streaming parser');
+    expect(matchTakeawayIds('next: "streaming parser"')).toEqual(['tx-1']);
+    expect(matchTakeawayIds('carryforward: "streaming parser"')).toEqual([]);
+    // An unqualified query spans the new column too.
+    expect(matchTakeawayIds('"streaming parser"')).toEqual(['tx-1']);
+  });
 });
 
 describe('syncSessionFile', () => {

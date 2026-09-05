@@ -27,24 +27,30 @@ export type TransactionEndEvent =
       summary?: never;
       result?: never;
       carryforward?: never;
+      next?: never;
     })
   | (TransactionEndEventBase & {
       disposition: 'compact';
       summary: string;
       result?: never;
       carryforward?: string;
+      next?: string;
     })
   | (TransactionEndEventBase & {
       disposition: 'squash';
       summary?: never;
       result: string;
       carryforward?: string;
+      next?: string;
     })
   | (TransactionEndEventBase & {
       disposition: 'revert';
       summary?: never;
       result?: never;
       carryforward: string;
+      // Optional here although the tool requires it for revert: sessions
+      // written before the field existed must keep replaying.
+      next?: string;
     });
 
 export type TransactionEvent = TransactionBeginEvent | TransactionEndEvent;
@@ -97,15 +103,23 @@ export function isTransactionEvent(value: unknown): value is TransactionEvent {
   }
   if (event.kind === 'end') {
     const carryforwardValid = event.carryforward === undefined || typeof event.carryforward === 'string';
+    const nextValid =
+      event.next === undefined || (typeof event.next === 'string' && event.next.trim().length > 0);
     if (event.disposition === 'commit') {
-      return event.summary === undefined && event.result === undefined && event.carryforward === undefined;
+      return (
+        event.summary === undefined &&
+        event.result === undefined &&
+        event.carryforward === undefined &&
+        event.next === undefined
+      );
     }
     if (event.disposition === 'compact') {
       return (
         typeof event.summary === 'string' &&
         event.summary.trim().length > 0 &&
         event.result === undefined &&
-        carryforwardValid
+        carryforwardValid &&
+        nextValid
       );
     }
     if (event.disposition === 'squash') {
@@ -113,7 +127,8 @@ export function isTransactionEvent(value: unknown): value is TransactionEvent {
         event.summary === undefined &&
         typeof event.result === 'string' &&
         event.result.trim().length > 0 &&
-        carryforwardValid
+        carryforwardValid &&
+        nextValid
       );
     }
     if (event.disposition === 'revert') {
@@ -121,7 +136,8 @@ export function isTransactionEvent(value: unknown): value is TransactionEvent {
         event.summary === undefined &&
         event.result === undefined &&
         typeof event.carryforward === 'string' &&
-        event.carryforward.trim().length > 0
+        event.carryforward.trim().length > 0 &&
+        nextValid
       );
     }
     return false;

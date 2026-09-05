@@ -18,6 +18,7 @@ The extension needs only public pi APIs:
 | Active branch and boundary IDs | `ctx.sessionManager.getBranch()` and `getLeafId()` |
 | Model-visible projection | `pi.on('context')` |
 | Safe compaction | `pi.on('session_before_compact')` |
+| Nesting nudge on long stretches | `pi.on('tool_result')` |
 | Generated summaries | `ctx.modelRegistry.complete()` |
 
 It does not use `before_provider_request`, rewrite the JSONL file, or mutate `SessionManager` internals.

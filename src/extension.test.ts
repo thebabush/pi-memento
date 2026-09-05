@@ -262,6 +262,20 @@ type ContextHandler = (
   ctx: ExtensionContext,
 ) => { messages: AgentMessage[] };
 
+interface ToolResultEvent {
+  type: 'tool_result';
+  toolName: string;
+  toolCallId: string;
+  input: Record<string, unknown>;
+  content: { type: 'text'; text: string }[];
+  isError: boolean;
+}
+
+type ToolResultHandler = (
+  event: ToolResultEvent,
+  ctx: ExtensionContext,
+) => { content: { type: string; text?: string }[] } | undefined;
+
 describe('contextTransactionsExtension', () => {
   it('registers the transaction tools and handlers', () => {
     const harness = createHarness();
@@ -278,6 +292,7 @@ describe('contextTransactionsExtension', () => {
       'session_before_compact',
       'session_start',
       'session_tree',
+      'tool_result',
     ]);
   });
 
@@ -319,6 +334,27 @@ describe('contextTransactionsExtension', () => {
 
     expect(caveat).toBeDefined();
     expect(caveat).toMatch(/destructive or irreversible/i);
+  });
+
+  it('tells the model to nest aggressively inside an open transaction', () => {
+    const harness = createHarness();
+
+    const guidelines = getTool(harness, 'transaction_begin').promptGuidelines ?? [];
+    const nesting = guidelines.find((guideline) => /Nest aggressively/.test(guideline));
+
+    expect(nesting).toBeDefined();
+    expect(nesting).toMatch(/sub-experiment/);
+    expect(nesting).toMatch(/should have nested/);
+  });
+
+  it('tells the model to act on a carryforward and next action instead of re-verifying them', () => {
+    const harness = createHarness();
+
+    const guidelines = getTool(harness, 'transaction_end').promptGuidelines ?? [];
+    const actOn = guidelines.find((guideline) => /re-verify/.test(guideline));
+
+    expect(actOn).toBeDefined();
+    expect(actOn).toMatch(/carryforward and next action/);
   });
 });
 
@@ -524,14 +560,52 @@ describe('transaction_end', () => {
     expect(harness.appended).toEqual([]);
   });
 
-  it('appends a revert event carrying the trimmed takeaway', async () => {
+  it('rejects a revert without a next action and appends nothing', async () => {
+    const harness = createHarness([customEntry('begin-metadata', TRANSACTION_ENTRY_TYPE, openBegin('tx'))]);
+    const leaf = assistantEntry('end-leaf', [toolCall('end-call', 'transaction_end')]);
+    const { ctx } = toolContext(harness, leaf);
+
+    await expect(
+      getTool(harness, 'transaction_end').execute(
+        'end-call',
+        { disposition: 'revert', carryforward: 'lesson', next: '   ' },
+        undefined,
+        undefined,
+        ctx,
+      ),
+    ).rejects.toThrow('A revert disposition requires a non-empty next action');
+    expect(harness.appended).toEqual([]);
+  });
+
+  it('rejects a next action with the commit disposition', async () => {
+    const harness = createHarness([customEntry('begin-metadata', TRANSACTION_ENTRY_TYPE, openBegin('tx'))]);
+    const leaf = assistantEntry('end-leaf', [toolCall('end-call', 'transaction_end')]);
+    const { ctx } = toolContext(harness, leaf);
+
+    await expect(
+      getTool(harness, 'transaction_end').execute(
+        'end-call',
+        { disposition: 'commit', next: 'do the thing' },
+        undefined,
+        undefined,
+        ctx,
+      ),
+    ).rejects.toThrow('next is only valid with compact, squash, or revert');
+    expect(harness.appended).toEqual([]);
+  });
+
+  it('appends a revert event carrying the trimmed takeaway and next action', async () => {
     const harness = createHarness([customEntry('begin-metadata', TRANSACTION_ENTRY_TYPE, openBegin('tx'))]);
     const leaf = assistantEntry('end-leaf', [toolCall('end-call', 'transaction_end')]);
     const { ctx } = toolContext(harness, leaf);
 
     const result = await getTool(harness, 'transaction_end').execute(
       'end-call',
-      { disposition: 'revert', carryforward: '  the BLE app fakes its checksum  ' },
+      {
+        disposition: 'revert',
+        carryforward: '  the BLE app fakes its checksum  ',
+        next: '  read the checksum from the firmware instead  ',
+      },
       undefined,
       undefined,
       ctx,
@@ -547,11 +621,29 @@ describe('transaction_end', () => {
           transactionId: 'tx',
           disposition: 'revert',
           carryforward: 'the BLE app fakes its checksum',
+          next: 'read the checksum from the firmware instead',
           boundaryToolCallId: 'end-call',
           boundaryEntryId: 'end-leaf',
         },
       },
     ]);
+  });
+
+  it('carries an optional next action on squash', async () => {
+    const harness = createHarness([customEntry('begin-metadata', TRANSACTION_ENTRY_TYPE, openBegin('tx'))]);
+    const leaf = assistantEntry('end-leaf', [toolCall('end-call', 'transaction_end')]);
+    const { ctx } = toolContext(harness, leaf);
+
+    await getTool(harness, 'transaction_end').execute(
+      'end-call',
+      { disposition: 'squash', result: 'final answer', next: '  wire it up  ' },
+      undefined,
+      undefined,
+      ctx,
+    );
+
+    expect(harness.appended[0]?.data).toMatchObject({ disposition: 'squash', result: 'final answer', next: 'wire it up' });
+    expect(harness.appended[0]?.data).not.toHaveProperty('carryforward');
   });
 
   it('appends a squash event with the trimmed result and carryforward', async () => {
@@ -750,5 +842,111 @@ describe('context handler', () => {
 
     expect(result.messages).toEqual(messages);
     expect(statuses).toEqual([{ key: 'context-transactions', text: 'transactions: projection disabled' }]);
+  });
+});
+
+describe('tool_result handler', () => {
+  const begin: TransactionEvent = {
+    version: 1,
+    kind: 'begin',
+    transactionId: 'tx',
+    purpose: 'chase the checksum',
+    boundaryToolCallId: 'begin-call',
+    boundaryEntryId: 'begin-entry',
+  };
+
+  function toolCallEntries(id: string): SessionEntry[] {
+    return [
+      assistantEntry(`${id}-call`, [toolCall(id, 'read_file')]),
+      messageEntry(`${id}-result`, toolResultMessage(id, 'read_file')),
+    ];
+  }
+
+  function openBranch(persistedCalls: number): SessionEntry[] {
+    const entries = [
+      userEntry('before', 'start'),
+      ...boundaryEntries('begin-entry', 'transaction_begin', 'begin-call', begin),
+    ];
+    for (let index = 0; index < persistedCalls; index += 1) entries.push(...toolCallEntries(`call-${index}`));
+    return linked(entries);
+  }
+
+  function toolResultEvent(toolName = 'read_file'): ToolResultEvent {
+    return {
+      type: 'tool_result',
+      toolName,
+      toolCallId: 'call-now',
+      input: {},
+      content: [{ type: 'text', text: 'file contents' }],
+      isError: false,
+    };
+  }
+
+  function withNudgeEvery<T>(value: string | undefined, fn: () => T): T {
+    const previous = process.env.PI_MEMENTO_NUDGE_EVERY;
+    if (value === undefined) delete process.env.PI_MEMENTO_NUDGE_EVERY;
+    else process.env.PI_MEMENTO_NUDGE_EVERY = value;
+    try {
+      return fn();
+    } finally {
+      if (previous === undefined) delete process.env.PI_MEMENTO_NUDGE_EVERY;
+      else process.env.PI_MEMENTO_NUDGE_EVERY = previous;
+    }
+  }
+
+  function deliver(harness: Harness, event = toolResultEvent()) {
+    const { ctx } = toolContext(harness, undefined);
+    const handler = harness.handlers.get('tool_result') as ToolResultHandler;
+    return handler(event, ctx);
+  }
+
+  it('returns undefined when no transaction is open', () => {
+    const harness = createHarness(
+      linked([userEntry('before', 'start'), ...toolCallEntries('call-0'), ...toolCallEntries('call-1')]),
+    );
+
+    expect(withNudgeEvery('3', () => deliver(harness))).toBeUndefined();
+  });
+
+  it('returns undefined below the threshold', () => {
+    const harness = createHarness(openBranch(1));
+
+    expect(withNudgeEvery('3', () => deliver(harness))).toBeUndefined();
+  });
+
+  it('appends the nudge to the result at the threshold, naming the purpose', () => {
+    // Two persisted results plus the one being delivered reach the threshold.
+    const harness = createHarness(openBranch(2));
+
+    const result = withNudgeEvery('3', () => deliver(harness));
+
+    expect(result?.content).toHaveLength(2);
+    expect(result?.content[0]).toEqual({ type: 'text', text: 'file contents' });
+    expect(result?.content[1]?.text).toContain(
+      '[memento] 3 tool calls since the last boundary of transaction "chase the checksum"',
+    );
+    expect(result?.content[1]?.text).toContain('open a nested transaction_begin now');
+    expect(harness.appended).toEqual([]);
+  });
+
+  it('nudges every 20 tool calls by default', () => {
+    const harness = createHarness(openBranch(19));
+
+    const result = withNudgeEvery(undefined, () => deliver(harness));
+
+    expect(result?.content[1]?.text).toContain('[memento] 20 tool calls');
+  });
+
+  it("ignores memento's own tools", () => {
+    const harness = createHarness(openBranch(2));
+
+    expect(withNudgeEvery('3', () => deliver(harness, toolResultEvent('context_search')))).toBeUndefined();
+    expect(withNudgeEvery('3', () => deliver(harness, toolResultEvent('transaction_status')))).toBeUndefined();
+  });
+
+  it('is disabled by PI_MEMENTO_NUDGE_EVERY=0', () => {
+    const harness = createHarness(openBranch(2));
+
+    expect(withNudgeEvery('0', () => deliver(harness))).toBeUndefined();
   });
 });

@@ -25,4 +25,20 @@ describe('isTransactionEvent', () => {
     expect(isTransactionEvent({ ...endBase, disposition: 'revert' })).toBe(false);
     expect(isTransactionEvent({ ...endBase, disposition: 'revert', carryforward: '   ' })).toBe(false);
   });
+
+  it('accepts a next action on compact, squash, and revert', () => {
+    expect(isTransactionEvent({ ...endBase, disposition: 'compact', summary: 'durable summary', next: 'do Y' })).toBe(true);
+    expect(isTransactionEvent({ ...endBase, disposition: 'squash', result: 'durable result', next: 'do Y' })).toBe(true);
+    expect(isTransactionEvent({ ...endBase, disposition: 'revert', carryforward: 'avoid X', next: 'do Y' })).toBe(true);
+  });
+
+  it('keeps accepting revert events persisted before the next action existed', () => {
+    expect(isTransactionEvent({ ...endBase, disposition: 'revert', carryforward: 'avoid X' })).toBe(true);
+  });
+
+  it('rejects a next action on commit and an empty next action', () => {
+    expect(isTransactionEvent({ ...endBase, disposition: 'commit', next: 'do Y' })).toBe(false);
+    expect(isTransactionEvent({ ...endBase, disposition: 'revert', carryforward: 'avoid X', next: '   ' })).toBe(false);
+    expect(isTransactionEvent({ ...endBase, disposition: 'squash', result: 'durable result', next: '' })).toBe(false);
+  });
 });

@@ -111,13 +111,20 @@ function locateRecord(
   };
 }
 
+const PROJECTION_TITLES = {
+  summary: 'Transaction summary',
+  result: 'Transaction result',
+  carryforward: 'Carryforward',
+  next: 'Next action',
+} as const;
+
 function syntheticMessage(
-  label: 'summary' | 'result' | 'carryforward',
+  label: keyof typeof PROJECTION_TITLES,
   content: string,
   end: TransactionEndEvent,
   timestamp: number,
 ): TransactionProjectionMessage {
-  const title = label === 'summary' ? 'Transaction summary' : label === 'result' ? 'Transaction result' : 'Carryforward';
+  const title = PROJECTION_TITLES[label];
   return {
     role: 'custom',
     customType: 'context-transaction-projection',
@@ -161,6 +168,9 @@ function renderTransaction(messages: readonly AgentMessage[], located: LocatedTr
   }
   if (record.end.carryforward) {
     replacement.push(syntheticMessage('carryforward', record.end.carryforward, record.end, timestamp));
+  }
+  if (record.end.next) {
+    replacement.push(syntheticMessage('next', record.end.next, record.end, timestamp));
   }
   return replacement;
 }

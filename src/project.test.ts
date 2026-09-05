@@ -59,7 +59,7 @@ function end(
   id: string,
   callId: string,
   disposition: TransactionEndEvent['disposition'],
-  extra: { summary?: string; result?: string; carryforward?: string } = {},
+  extra: { summary?: string; result?: string; carryforward?: string; next?: string } = {},
 ): TransactionEndEvent {
   const base = {
     version: 1,
@@ -68,15 +68,19 @@ function end(
     boundaryToolCallId: callId,
     boundaryEntryId: `entry-${callId}`,
   } as const;
+  const optional = {
+    ...(extra.carryforward && { carryforward: extra.carryforward }),
+    ...(extra.next && { next: extra.next }),
+  };
   switch (disposition) {
     case 'commit':
       return { ...base, disposition };
     case 'compact':
-      return { ...base, disposition, summary: extra.summary ?? 'summary', ...(extra.carryforward && { carryforward: extra.carryforward }) };
+      return { ...base, disposition, summary: extra.summary ?? 'summary', ...optional };
     case 'squash':
-      return { ...base, disposition, result: extra.result ?? 'result', ...(extra.carryforward && { carryforward: extra.carryforward }) };
+      return { ...base, disposition, result: extra.result ?? 'result', ...optional };
     case 'revert':
-      return { ...base, disposition, carryforward: extra.carryforward ?? 'takeaway' };
+      return { ...base, disposition, carryforward: extra.carryforward ?? 'takeaway', ...optional };
   }
 }
 
@@ -111,6 +115,25 @@ describe('projectMessages', () => {
 
     expect(result.safe).toBe(true);
     expect(text(result.messages)).toBe('before|[Carryforward: Do not retry X]|after');
+  });
+
+  it('projects a revert as its carryforward followed by its next action', () => {
+    const messages = [
+      user('before'),
+      ...boundary('transaction_begin', 'begin-1'),
+      assistant('dead end'),
+      ...boundary('transaction_end', 'end-1'),
+      user('after'),
+    ];
+    const events: TransactionEvent[] = [
+      begin('tx-1', 'begin-1'),
+      end('tx-1', 'end-1', 'revert', { carryforward: 'X is a dead end', next: 'try Y instead' }),
+    ];
+
+    const result = projectMessages(messages, replayTransactions(events));
+
+    expect(result.safe).toBe(true);
+    expect(text(result.messages)).toBe('before|[Carryforward: X is a dead end]|[Next action: try Y instead]|after');
   });
 
   it('retains a committed transaction exactly', () => {
@@ -177,12 +200,14 @@ describe('projectMessages', () => {
       begin('compact', 'compact-b'),
       end('compact', 'compact-e', 'compact', { summary: 'Found Y' }),
       begin('squash', 'squash-b'),
-      end('squash', 'squash-e', 'squash', { result: 'foo is synchronous' }),
+      end('squash', 'squash-e', 'squash', { result: 'foo is synchronous', next: 'call it directly' }),
     ];
 
     const result = projectMessages(messages, replayTransactions(events));
 
-    expect(text(result.messages)).toBe('[Transaction summary: Found Y]|[Transaction result: foo is synchronous]');
+    expect(text(result.messages)).toBe(
+      '[Transaction summary: Found Y]|[Transaction result: foo is synchronous]|[Next action: call it directly]',
+    );
   });
 
   it('fails closed when only one side of a boundary is visible', () => {

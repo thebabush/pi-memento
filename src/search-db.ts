@@ -2,7 +2,7 @@ import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import { join } from 'node:path';
 
 export const INDEX_DB_FILENAME = 'memento-index.sqlite3';
-export const INDEX_SCHEMA_VERSION = 2;
+export const INDEX_SCHEMA_VERSION = 3;
 
 export interface IndexStatements {
   getSyncState: StatementSync;
@@ -55,11 +55,14 @@ function createSchema(database: DatabaseSync): void {
       summary TEXT,
       result TEXT,
       carryforward TEXT,
+      next TEXT,
       begin_entry_id TEXT,
       end_entry_id TEXT,
       PRIMARY KEY (session_id, transaction_id)
     );
-    CREATE VIRTUAL TABLE IF NOT EXISTS takeaways_fts USING fts5(purpose, takeaway, carryforward, tokenize='trigram');
+    CREATE VIRTUAL TABLE IF NOT EXISTS takeaways_fts USING fts5(
+      purpose, takeaway, carryforward, next, tokenize='trigram'
+    );
     PRAGMA user_version = ${INDEX_SCHEMA_VERSION};
   `);
 }
@@ -90,21 +93,23 @@ function prepareStatements(database: DatabaseSync): IndexStatements {
          begin_entry_id = excluded.begin_entry_id`,
     ),
     upsertTakeawayEnd: database.prepare(
-      `INSERT INTO takeaways (session_id, transaction_id, disposition, summary, result, carryforward, end_entry_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO takeaways (session_id, transaction_id, disposition, summary, result, carryforward, next, end_entry_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(session_id, transaction_id) DO UPDATE SET
          disposition = excluded.disposition,
          summary = excluded.summary,
          result = excluded.result,
          carryforward = excluded.carryforward,
+         next = excluded.next,
          end_entry_id = excluded.end_entry_id`,
     ),
     getTakeaway: database.prepare(
-      'SELECT rowid, purpose, summary, result, carryforward FROM takeaways WHERE session_id = ? AND transaction_id = ?',
+      `SELECT rowid, purpose, summary, result, carryforward, next FROM takeaways
+       WHERE session_id = ? AND transaction_id = ?`,
     ),
     deleteTakeawayFts: database.prepare('DELETE FROM takeaways_fts WHERE rowid = ?'),
     insertTakeawayFts: database.prepare(
-      'INSERT INTO takeaways_fts (rowid, purpose, takeaway, carryforward) VALUES (?, ?, ?, ?)',
+      'INSERT INTO takeaways_fts (rowid, purpose, takeaway, carryforward, next) VALUES (?, ?, ?, ?, ?)',
     ),
   };
 }

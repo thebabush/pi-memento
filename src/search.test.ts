@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { asEntryId, asSessionId } from './ids.js';
 import { openIndexDb, type IndexDb } from './search-db.js';
 import { syncEntries } from './search-index.js';
-import { isFts5QueryError, runMatchQuery, searchIndex, type SearchHit } from './search.js';
+import { countClosedTakeaways, isFts5QueryError, runMatchQuery, searchIndex, type SearchHit } from './search.js';
 import { TRANSACTION_ENTRY_TYPE, type TransactionBeginEvent, type TransactionEndEvent } from './types.js';
 
 let clock = 0;
@@ -59,7 +59,7 @@ function squashEnd(
   transactionId: string,
   entryId: string,
   result: string,
-  carryforward?: string,
+  extra: { carryforward?: string; next?: string } = {},
 ): TransactionEndEvent {
   return {
     version: 1,
@@ -67,7 +67,8 @@ function squashEnd(
     transactionId,
     disposition: 'squash',
     result,
-    ...(carryforward && { carryforward }),
+    ...(extra.carryforward && { carryforward: extra.carryforward }),
+    ...(extra.next && { next: extra.next }),
     boundaryToolCallId: `${transactionId}-end-call`,
     boundaryEntryId: entryId,
   };
@@ -75,17 +76,14 @@ function squashEnd(
 
 function transactionEntries(
   transactionId: string,
-  fields: { purpose?: string; result?: string; carryforward?: string },
+  fields: { purpose?: string; result?: string; carryforward?: string; next?: string },
 ): SessionEntry[] {
   const entries = [
     transactionEntry(`${transactionId}-begin`, begin(transactionId, `${transactionId}-begin`, fields.purpose)),
   ];
   if (fields.result) {
     entries.push(
-      transactionEntry(
-        `${transactionId}-end`,
-        squashEnd(transactionId, `${transactionId}-end`, fields.result, fields.carryforward),
-      ),
+      transactionEntry(`${transactionId}-end`, squashEnd(transactionId, `${transactionId}-end`, fields.result, fields)),
     );
   }
   return entries;
@@ -110,6 +108,7 @@ describe('searchIndex takeaways layer', () => {
         purpose: 'zebra migration research',
         result: 'quokka conclusion reached',
         carryforward: 'pangolin lesson learned',
+        next: 'wallaby follow-up planned',
       }),
     ]);
   });
@@ -126,8 +125,15 @@ describe('searchIndex takeaways layer', () => {
       disposition: 'squash',
       takeaway: 'quokka conclusion reached',
       carryforward: 'pangolin lesson learned',
+      next: 'wallaby follow-up planned',
     });
     expect(hits[0]?.score).toBeGreaterThan(0);
+  });
+
+  it('finds a takeaway by next action', () => {
+    const { hits } = searchIndex(db, { query: 'wallaby', layer: 'takeaways' });
+
+    expect(transactionIds(hits)).toEqual(['tx-1']);
   });
 
   it('finds a takeaway by its result text', () => {
@@ -231,6 +237,37 @@ describe('searchIndex full layer', () => {
     expect(hit.snippet).toContain('<<');
     expect(hit.snippet).toContain('>>');
     expect(hit.snippet).toContain('aardvark');
+  });
+});
+
+describe('countClosedTakeaways', () => {
+  it('counts closed takeaways within the session and branch filters', () => {
+    syncEntries(db, asSessionId('sess'), [
+      ...transactionEntries('tx-open', { purpose: 'still running' }),
+      ...transactionEntries('tx-closed', { purpose: 'finished', result: 'done' }),
+    ]);
+    syncEntries(db, asSessionId('other'), [...transactionEntries('tx-other', { result: 'done elsewhere' })]);
+
+    expect(countClosedTakeaways(db, {})).toBe(2);
+    expect(countClosedTakeaways(db, { sessionId: asSessionId('sess') })).toBe(1);
+    expect(
+      countClosedTakeaways(db, {
+        sessionId: asSessionId('sess'),
+        entryIdFilter: new Set([asEntryId('tx-closed-end')]),
+      }),
+    ).toBe(1);
+    expect(
+      countClosedTakeaways(db, {
+        sessionId: asSessionId('sess'),
+        entryIdFilter: new Set([asEntryId('tx-open-begin')]),
+      }),
+    ).toBe(0);
+  });
+
+  it('returns zero when only open transactions exist', () => {
+    syncEntries(db, asSessionId('sess'), [...transactionEntries('tx-open', { purpose: 'still running' })]);
+
+    expect(countClosedTakeaways(db, {})).toBe(0);
   });
 });
 

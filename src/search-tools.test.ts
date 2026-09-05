@@ -107,14 +107,20 @@ function begin(transactionId: string, callId: string, purpose?: string): Transac
   };
 }
 
-function squashEnd(transactionId: string, callId: string, result: string, carryforward?: string): TransactionEndEvent {
+function squashEnd(
+  transactionId: string,
+  callId: string,
+  result: string,
+  extra: { carryforward?: string; next?: string } = {},
+): TransactionEndEvent {
   return {
     version: 1,
     kind: 'end',
     transactionId,
     disposition: 'squash',
     result,
-    ...(carryforward && { carryforward }),
+    ...(extra.carryforward && { carryforward: extra.carryforward }),
+    ...(extra.next && { next: extra.next }),
     boundaryToolCallId: callId,
     boundaryEntryId: `${callId}-call`,
   };
@@ -123,14 +129,19 @@ function squashEnd(transactionId: string, callId: string, result: string, carryf
 // Mirrors pi's append order during tool execution (see extension.test.ts):
 // the assistant message holding the boundary call, then the custom entry the
 // tool appends while executing, then the boundary's tool result.
-function squashedTransaction(transactionId: string, bodyText: string, result: string): SessionEntry[] {
+function squashedTransaction(
+  transactionId: string,
+  bodyText: string,
+  result: string,
+  extra: { carryforward?: string; next?: string } = {},
+): SessionEntry[] {
   return [
     boundaryCallEntry('transaction_begin', `${transactionId}-b`),
     transactionEntry(`${transactionId}-begin-entry`, begin(transactionId, `${transactionId}-b`, `explore ${transactionId}`)),
     boundaryResultEntry('transaction_begin', `${transactionId}-b`),
     assistantEntry(`${transactionId}-body`, bodyText),
     boundaryCallEntry('transaction_end', `${transactionId}-e`),
-    transactionEntry(`${transactionId}-end-entry`, squashEnd(transactionId, `${transactionId}-e`, result)),
+    transactionEntry(`${transactionId}-end-entry`, squashEnd(transactionId, `${transactionId}-e`, result, extra)),
     boundaryResultEntry('transaction_end', `${transactionId}-e`),
   ];
 }
@@ -182,9 +193,12 @@ interface RecallParams {
   sessionId?: string;
 }
 
+async function searchResult(ctx: ExtensionContext, params: SearchParams): Promise<AgentToolResult<unknown>> {
+  return contextSearchTool.execute('search-call', params, undefined, undefined, ctx);
+}
+
 async function search(ctx: ExtensionContext, params: SearchParams): Promise<string> {
-  const result = await contextSearchTool.execute('search-call', params, undefined, undefined, ctx);
-  return resultText(result);
+  return resultText(await searchResult(ctx, params));
 }
 
 async function recall(ctx: ExtensionContext, params: RecallParams): Promise<string> {
@@ -201,17 +215,61 @@ function squashedBranch(): SessionEntry[] {
 }
 
 describe('context_search', () => {
-  it('finds a squashed-away body via layer full and marks visibility', async () => {
+  it('finds a squashed-away body via layer full and renders it as forgotten', async () => {
     const ctx = fakeCtx('sess', squashedBranch());
 
-    const forgotten = await search(ctx, { query: 'xylophone', layer: 'full', scope: 'branch' });
-    expect(forgotten).toContain('entry (forgotten)');
-    expect(forgotten).toContain('xylophone');
-    expect(forgotten).toContain('entryId=tx-body');
+    const text = await search(ctx, { query: 'xylophone', layer: 'full', scope: 'branch' });
+    expect(text).toContain('1 hit (layer=full, scope=branch)');
+    expect(text).toContain('entry (forgotten)');
+    expect(text).toContain('xylophone');
+    expect(text).toContain('recall: entryId=tx-body');
+  });
 
-    const visible = await search(ctx, { query: 'zebra', layer: 'full', scope: 'branch' });
-    expect(visible).toContain('entry (visible)');
-    expect(visible).toContain('entryId=u1');
+  it('omits hits already visible in the context and counts them in the header', async () => {
+    const ctx = fakeCtx('sess', [
+      userEntry('u1', 'the zebra message stays visible'),
+      ...squashedTransaction('tx', 'a zebra hidden in the squashed body', 'squash result'),
+      userEntry('u2', 'work continues after the squash'),
+    ]);
+
+    const result = await searchResult(ctx, { query: 'zebra', layer: 'full', scope: 'branch' });
+    const text = resultText(result);
+    expect(text).toContain('1 hit (layer=full, scope=branch); 1 visible hit omitted (already in your context)');
+    expect(text).toContain('entry (forgotten)');
+    expect(text).toContain('recall: entryId=tx-body');
+    expect(text).not.toContain('entryId=u1');
+    expect(text).not.toContain('(visible)');
+    expect(result.details).toMatchObject({ total: 2, shown: 1, visibleOmitted: 1 });
+  });
+
+  it('reports when every hit is already visible instead of rendering them', async () => {
+    const ctx = fakeCtx('sess', [
+      userEntry('u1', 'the first zebra message stays visible'),
+      userEntry('u2', 'the second zebra message stays visible too'),
+    ]);
+
+    const result = await searchResult(ctx, { query: 'zebra', layer: 'full', scope: 'branch' });
+    const text = resultText(result);
+    expect(text).toContain(
+      'All 2 hits for "zebra" are already visible in your context; nothing forgotten matches (layer=full, scope=branch).',
+    );
+    expect(text).toContain("Try scope 'session' to include other branches, then scope 'project' to include other sessions.");
+    expect(text).not.toContain('entryId=');
+    expect(result.details).toMatchObject({ total: 2, shown: 0, visibleOmitted: 2 });
+  });
+
+  it('renders the next action in a takeaway hit', async () => {
+    const ctx = fakeCtx(
+      'sess',
+      squashedTransaction('tx', 'body text', 'quokka squash result reached', {
+        carryforward: 'pangolin lesson learned',
+        next: 'port the fix to the wallaby client',
+      }),
+    );
+
+    const text = await search(ctx, { query: 'wallaby' });
+    expect(text).toContain('takeaway (squash)');
+    expect(text).toContain('  carryforward: pangolin lesson learned\n  next: port the fix to the wallaby client');
   });
 
   it('finds the squash result on the default takeaways layer and branch scope', async () => {
@@ -266,8 +324,8 @@ describe('context_search', () => {
     closeIndexDb(db);
   });
 
-  it('suggests the escalation path on an empty result', async () => {
-    const ctx = fakeCtx('sess', [userEntry('u1', 'nothing relevant here')]);
+  it('suggests the escalation path on an empty result once a takeaway exists', async () => {
+    const ctx = fakeCtx('sess', squashedBranch());
 
     const text = await search(ctx, { query: 'zzznotfound' });
     expect(text).toContain('No matches');
@@ -275,6 +333,24 @@ describe('context_search', () => {
     expect(text).toContain("scope 'session'");
     expect(text).toContain("scope 'project'");
     expect(text).toContain('trigram');
+    expect(text).not.toContain('No takeaways exist yet');
+  });
+
+  it('explains an empty takeaways result when no transaction has closed yet', async () => {
+    // An open transaction has a purpose in the index but no disposition.
+    const ctx = fakeCtx('sess', [
+      userEntry('u1', 'nothing relevant here'),
+      transactionEntry('open-begin-entry', begin('open', 'open-b', 'still open work')),
+    ]);
+
+    const text = await search(ctx, { query: 'zzznotfound' });
+    expect(text).toContain(
+      'No takeaways exist yet (scope=branch): no transaction has closed with a result, summary, carryforward, or next action, so there is nothing to search at this layer.',
+    );
+    expect(text).toContain("Try scope 'session' to include other branches, then scope 'project' to include other sessions.");
+    expect(text).toContain("Use layer 'full' only for text that is no longer in your context.");
+    expect(text).not.toContain('No matches');
+    expect(text).not.toContain("layer 'full' to search complete entry text");
   });
 });
 
@@ -305,6 +381,19 @@ describe('context_recall', () => {
     expect(text).not.toContain('[toolResult] ok');
     expect(text).not.toContain('zebra');
     expect(text).not.toContain('work continues after the squash');
+  });
+
+  it('prints the next action in the recall header after the carryforward', async () => {
+    const ctx = fakeCtx(
+      'sess',
+      squashedTransaction('tx', 'body text', 'quokka squash result reached', {
+        carryforward: 'pangolin lesson learned',
+        next: 'port the fix to the wallaby client',
+      }),
+    );
+
+    const text = await recall(ctx, { transactionId: 'tx' });
+    expect(text).toContain('Carryforward: pangolin lesson learned\nNext: port the fix to the wallaby client');
   });
 
   it('recalls a foreign transaction body through the recorded file_path', async () => {

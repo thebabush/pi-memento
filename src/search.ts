@@ -25,6 +25,7 @@ export interface TakeawaySearchHit extends SearchHitBase {
   disposition?: string;
   takeaway?: string; // summary or result
   carryforward?: string;
+  next?: string;
 }
 
 export type SearchHit = EntrySearchHit | TakeawaySearchHit;
@@ -68,12 +69,19 @@ const ENTRY_SQL = `
 
 const TAKEAWAY_SQL = `
   SELECT t.session_id, t.transaction_id, t.purpose, t.disposition, t.summary, t.result,
-         t.carryforward, t.begin_entry_id, t.end_entry_id,
-         bm25(takeaways_fts, 1.0, 2.0, 1.5) AS rank
+         t.carryforward, t.next, t.begin_entry_id, t.end_entry_id,
+         bm25(takeaways_fts, 1.0, 2.0, 1.5, 1.5) AS rank
   FROM takeaways_fts JOIN takeaways t ON t.rowid = takeaways_fts.rowid
   WHERE takeaways_fts MATCH ? AND (? IS NULL OR t.session_id = ?)
   ORDER BY rank, t.rowid
   LIMIT ? OFFSET ?`;
+
+// Closed takeaways carry a disposition; an open transaction has only its
+// purpose indexed so far. Boundary ids feed the same branch filter as
+// takeawayHits.
+const CLOSED_TAKEAWAY_SQL = `
+  SELECT begin_entry_id, end_entry_id FROM takeaways
+  WHERE disposition IS NOT NULL AND (? IS NULL OR session_id = ?)`;
 
 /**
  * Recognizes errors SQLite raises for a problem in the FTS5 MATCH expression
@@ -139,6 +147,11 @@ function asScore(value: unknown): number {
   return 0;
 }
 
+function asOptionalEntryId(value: unknown): EntryId | undefined {
+  const text = asText(value);
+  return text === undefined ? undefined : asEntryId(text);
+}
+
 /**
  * Decodes one ENTRY_SQL row, narrowing every column in one place. A row
  * missing a required field (impossible while the schema's NOT NULL
@@ -182,8 +195,6 @@ function decodeTakeawayHitRow(row: IndexRow): DecodedTakeawayHitRow | undefined 
   const sessionId = asText(row.session_id);
   const transactionId = asText(row.transaction_id);
   if (sessionId === undefined || transactionId === undefined) return undefined;
-  const beginEntryId = asText(row.begin_entry_id);
-  const endEntryId = asText(row.end_entry_id);
   return {
     hit: {
       kind: 'takeaway',
@@ -194,9 +205,10 @@ function decodeTakeawayHitRow(row: IndexRow): DecodedTakeawayHitRow | undefined 
       disposition: asText(row.disposition),
       takeaway: asText(row.summary) ?? asText(row.result),
       carryforward: asText(row.carryforward),
+      next: asText(row.next),
     },
-    beginEntryId: beginEntryId === undefined ? undefined : asEntryId(beginEntryId),
-    endEntryId: endEntryId === undefined ? undefined : asEntryId(endEntryId),
+    beginEntryId: asOptionalEntryId(row.begin_entry_id),
+    endEntryId: asOptionalEntryId(row.end_entry_id),
   };
 }
 
@@ -295,6 +307,24 @@ function takeawayHits(db: IndexDb, options: SearchOptions, limit: number): Searc
     limit,
     options.entryIdFilter !== undefined,
   );
+}
+
+/**
+ * Number of closed takeaways the given scope could have matched at all, so an
+ * empty takeaways-layer result can distinguish "nothing matched" from "nothing
+ * has been closed yet".
+ */
+export function countClosedTakeaways(
+  db: IndexDb,
+  options: Pick<SearchOptions, 'sessionId' | 'entryIdFilter'>,
+): number {
+  const sessionId = options.sessionId ?? null;
+  const rows = db.database.prepare(CLOSED_TAKEAWAY_SQL).all(sessionId, sessionId);
+  const filter = options.entryIdFilter;
+  if (!filter) return rows.length;
+  return rows.filter((row) =>
+    takeawayOnBranch(filter, asOptionalEntryId(row.begin_entry_id), asOptionalEntryId(row.end_entry_id)),
+  ).length;
 }
 
 export function searchIndex(db: IndexDb, options: SearchOptions): SearchResult {
