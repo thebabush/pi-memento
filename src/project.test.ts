@@ -1,6 +1,6 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { describe, expect, it } from 'vitest';
-import { projectMessages } from './project.js';
+import { closedTransactionText, projectMessages } from './project.js';
 import { replayTransactions } from './replay.js';
 import type { TransactionBeginEvent, TransactionEndEvent, TransactionEvent } from './types.js';
 
@@ -92,6 +92,9 @@ function text(messages: AgentMessage[]): string {
       if (message.role === 'assistant') {
         return message.content.filter((part) => part.type === 'text').map((part) => part.text);
       }
+      if (message.role === 'toolResult') {
+        return message.content.flatMap((part) => (part.type === 'text' ? [`${message.toolName}: ${part.text}`] : []));
+      }
       return [];
     })
     .join('|');
@@ -106,15 +109,16 @@ describe('projectMessages', () => {
       ...boundary('transaction_end', 'end-1'),
       user('after'),
     ];
-    const events: TransactionEvent[] = [
-      begin('tx-1', 'begin-1'),
-      end('tx-1', 'end-1', 'revert', { carryforward: 'Do not retry X' }),
-    ];
+    const closed = end('tx-1', 'end-1', 'revert', { carryforward: 'Do not retry X' });
+    const events: TransactionEvent[] = [begin('tx-1', 'begin-1'), closed];
 
     const result = projectMessages(messages, replayTransactions(events));
 
     expect(result.safe).toBe(true);
-    expect(text(result.messages)).toBe('before|[Carryforward: Do not retry X]|after');
+    expect(text(result.messages)).toBe(
+      `before|transaction_begin: ok|transaction_end: ${closedTransactionText(closed)}|after`,
+    );
+    expect(closedTransactionText(closed)).toContain('Carryforward: Do not retry X');
   });
 
   it('projects a revert as its carryforward followed by its next action', () => {
@@ -125,15 +129,19 @@ describe('projectMessages', () => {
       ...boundary('transaction_end', 'end-1'),
       user('after'),
     ];
-    const events: TransactionEvent[] = [
-      begin('tx-1', 'begin-1'),
-      end('tx-1', 'end-1', 'revert', { carryforward: 'X is a dead end', next: 'try Y instead' }),
-    ];
+    const closed = end('tx-1', 'end-1', 'revert', { carryforward: 'X is a dead end', next: 'try Y instead' });
+    const events: TransactionEvent[] = [begin('tx-1', 'begin-1'), closed];
 
     const result = projectMessages(messages, replayTransactions(events));
 
     expect(result.safe).toBe(true);
-    expect(text(result.messages)).toBe('before|[Carryforward: X is a dead end]|[Next action: try Y instead]|after');
+    expect(text(result.messages)).toBe(
+      `before|transaction_begin: ok|transaction_end: ${closedTransactionText(closed)}|after`,
+    );
+    expect(closedTransactionText(closed)).toBe(
+      'Closed transaction tx-1 with disposition revert\nIts body is removed from your context.\n' +
+        'Carryforward: X is a dead end\nNext action: try Y instead',
+    );
   });
 
   it('retains a committed transaction exactly', () => {
@@ -152,16 +160,16 @@ describe('projectMessages', () => {
       ...boundary('transaction_end', 'inner-e'),
       assistant('outer continues'),
     ];
-    const events: TransactionEvent[] = [
-      begin('outer', 'outer-b'),
-      begin('inner', 'inner-b', 'outer'),
-      end('inner', 'inner-e', 'revert', { carryforward: 'inner takeaway' }),
-    ];
+    const closed = end('inner', 'inner-e', 'revert', { carryforward: 'inner takeaway' });
+    const events: TransactionEvent[] = [begin('outer', 'outer-b'), begin('inner', 'inner-b', 'outer'), closed];
 
     const result = projectMessages(messages, replayTransactions(events));
 
     expect(result.safe).toBe(true);
-    expect(text(result.messages)).toBe('outer work|[Carryforward: inner takeaway]|outer continues');
+    expect(text(result.messages)).toBe(
+      'transaction_begin: ok|outer work|transaction_begin: ok|' +
+        `transaction_end: ${closedTransactionText(closed)}|outer continues`,
+    );
     expect(result.messages.some((message) => message.role === 'toolResult' && message.toolCallId === 'outer-b')).toBe(true);
   });
 
@@ -175,16 +183,20 @@ describe('projectMessages', () => {
       ...boundary('transaction_end', 'outer-e'),
       user('after'),
     ];
+    const closed = end('outer', 'outer-e', 'revert', { carryforward: 'outer takeaway' });
     const events: TransactionEvent[] = [
       begin('outer', 'outer-b'),
       begin('inner', 'inner-b', 'outer'),
       end('inner', 'inner-e', 'commit'),
-      end('outer', 'outer-e', 'revert', { carryforward: 'outer takeaway' }),
+      closed,
     ];
 
     const result = projectMessages(messages, replayTransactions(events));
 
-    expect(text(result.messages)).toBe('before|[Carryforward: outer takeaway]|after');
+    expect(text(result.messages)).toBe(
+      `before|transaction_begin: ok|transaction_end: ${closedTransactionText(closed)}|after`,
+    );
+    expect(text(result.messages)).not.toContain('important child work');
   });
 
   it('replaces compact and squash transactions with their durable outputs', () => {
@@ -196,18 +208,36 @@ describe('projectMessages', () => {
       assistant('derivation'),
       ...boundary('transaction_end', 'squash-e'),
     ];
-    const events: TransactionEvent[] = [
-      begin('compact', 'compact-b'),
-      end('compact', 'compact-e', 'compact', { summary: 'Found Y' }),
-      begin('squash', 'squash-b'),
-      end('squash', 'squash-e', 'squash', { result: 'foo is synchronous', next: 'call it directly' }),
-    ];
+    const compacted = end('compact', 'compact-e', 'compact', { summary: 'Found Y' });
+    const squashed = end('squash', 'squash-e', 'squash', { result: 'foo is synchronous', next: 'call it directly' });
+    const events: TransactionEvent[] = [begin('compact', 'compact-b'), compacted, begin('squash', 'squash-b'), squashed];
 
     const result = projectMessages(messages, replayTransactions(events));
 
     expect(text(result.messages)).toBe(
-      '[Transaction summary: Found Y]|[Transaction result: foo is synchronous]|[Next action: call it directly]',
+      `transaction_begin: ok|transaction_end: ${closedTransactionText(compacted)}|` +
+        `transaction_begin: ok|transaction_end: ${closedTransactionText(squashed)}`,
     );
+    expect(closedTransactionText(compacted)).toBe(
+      'Closed transaction compact with disposition compact\nIts body is replaced in your context by this summary:\nFound Y',
+    );
+    // The agent's own boundary calls stay in context.
+    const calls = result.messages.flatMap((message) =>
+      message.role === 'assistant' ? message.content.filter((part) => part.type === 'toolCall').map((part) => part.id) : [],
+    );
+    expect(calls).toEqual(['compact-b', 'compact-e', 'squash-b', 'squash-e']);
+  });
+
+  it('keeps the stored end result object when it already carries the retained text', () => {
+    const closed = end('tx', 'e', 'squash', { result: 'done' });
+    const endTurn = boundary('transaction_end', 'e');
+    const stored = endTurn[1]!;
+    if (stored.role === 'toolResult') stored.content = [{ type: 'text', text: closedTransactionText(closed) }];
+    const messages = [...boundary('transaction_begin', 'b'), assistant('work'), ...endTurn];
+
+    const result = projectMessages(messages, replayTransactions([begin('tx', 'b'), closed]));
+
+    expect(result.messages.at(-1)).toBe(stored);
   });
 
   it('fails closed when only one side of a boundary is visible', () => {

@@ -19,7 +19,7 @@ The extension needs only public pi APIs:
 | Model-visible projection | `pi.on('context')` |
 | Safe compaction | `pi.on('session_before_compact')` |
 | Nesting nudge on long stretches | `pi.on('tool_result')` |
-| Generated summaries | `ctx.modelRegistry.complete()` |
+| Generated summaries | Provider `streamSimple()` with registry auth; `ctx.modelRegistry.complete()` for isolated summaries |
 
 It does not use `before_provider_request`, rewrite the JSONL file, or mutate `SessionManager` internals.
 
@@ -46,6 +46,7 @@ type TransactionEventV1 =
       summary?: string;
       result?: string;
       carryforward?: string;
+      next?: string;
       boundaryToolCallId: string;
       boundaryEntryId: string;
     };
@@ -70,6 +71,7 @@ transaction_end({
   disposition: 'commit' | 'compact' | 'squash' | 'revert';
   result?: string;
   carryforward?: string;
+  next?: string;
 })
 
 transaction_status()
@@ -81,8 +83,8 @@ Rules:
 - `transaction_end` always closes the top stack item; v1 exposes no arbitrary transaction ID to the model.
 - `squash` requires a non-empty `result`.
 - `result` is rejected for other dispositions to avoid ambiguous durable memory.
-- `revert` requires a non-empty `carryforward`, so a discarded exploration still leaves its lesson.
-- `carryforward` is rejected for `commit`.
+- `revert` requires non-empty `carryforward` and `next` strings, so a discarded exploration leaves its lesson and the next action. Older stored events without `next` still replay.
+- `carryforward` and `next` are rejected for `commit`.
 - Empty `purpose` and `carryforward` values are normalized away.
 - For `compact`, the summary is generated before appending the end event. Failure or cancellation leaves the transaction open and returns an error tool result.
 - `transaction_status` is read-only and may coexist with other tool calls.
@@ -123,26 +125,15 @@ Disposition behavior:
 |---|---|
 | Open | Raw transaction, with closed child projections applied |
 | Commit | Raw transaction, with closed child projections applied |
-| Compact | One synthetic transaction-summary message, then optional carryforward |
-| Squash | One synthetic result message, then optional carryforward |
-| Revert | Carryforward only |
+| Compact | Boundary calls/results, with the summary and optional carryforward/next in the end result |
+| Squash | Boundary calls/results, with the explicit result and optional carryforward/next in the end result |
+| Revert | Boundary calls/results, with carryforward and next in the end result |
 
 The parent disposition owns its entire interval after child projection. Consequently, reverting an outer transaction also removes a committed inner transaction.
 
-Synthetic messages use pi's custom agent-message shape:
+The end tool persists the retained text in its result. Projection reuses that result unchanged; for older sessions with a bare acknowledgement, it renders the retained text from the end event without rewriting history. Only the body between the boundary turns is removed.
 
-```ts
-{
-  role: 'custom',
-  customType: 'context-transaction-projection',
-  content: '[Transaction result: ...]',
-  display: false,
-  details: { transactionId, kind },
-  timestamp: endTimestamp,
-}
-```
-
-They exist only in the derived context. They are never appended as canonical custom-message entries.
+Transaction summaries try to reuse the agent's prompt prefix, tools, thinking level and session ID through the provider's `streamSimple()`. This is a cache optimization, not a cache-hit guarantee: other extensions, provider routing, transport settings and cache expiry can change reuse. Empty, truncated or tool-calling answers fall back to an isolated summary; errors and cancellation leave the transaction open. Isolated summaries must also complete normally before any history is hidden.
 
 ## Compaction contract
 

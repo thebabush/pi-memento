@@ -1,7 +1,7 @@
 import { StringEnum, Type, type Usage } from '@earendil-works/pi-ai';
 import { defineTool, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
-import { projectMessages } from './project.js';
+import { closedTransactionText, projectMessages } from './project.js';
 import { handleTransactionCompaction } from './pi-compaction.js';
 import { contextRecallTool, contextSearchTool } from './search-tools.js';
 import {
@@ -10,7 +10,7 @@ import {
   currentTransactions,
   toolCallsSinceLastBoundary,
 } from './session.js';
-import { summarizeOpenTransaction } from './summarize.js';
+import { type AgentRequestShape, summarizeOpenTransaction } from './summarize.js';
 import {
   TRANSACTION_ENTRY_TYPE,
   type TransactionBeginEvent,
@@ -37,6 +37,17 @@ function nudgeEvery(): number {
 
 function isMementoTool(name: string): boolean {
   return name.startsWith('transaction_') || name.startsWith('context_');
+}
+
+/** The active tools in the order the agent sends them, and its thinking level. */
+function agentRequestShape(pi: ExtensionAPI): AgentRequestShape {
+  const definitions = new Map(pi.getAllTools().map((tool) => [tool.name, tool]));
+  const tools = pi.getActiveTools().flatMap((name) => {
+    const tool = definitions.get(name);
+    return tool ? [{ name: tool.name, description: tool.description, parameters: tool.parameters }] : [];
+  });
+  const level = pi.getThinkingLevel();
+  return { tools, ...(level !== 'off' && { reasoning: level }) };
 }
 
 interface RetainedContent {
@@ -175,7 +186,7 @@ function createEndTool(pi: ExtensionAPI) {
     let summary: string | undefined;
     let summaryUsage: Usage | undefined;
     if (disposition === 'compact') {
-      const generated = await summarizeOpenTransaction(ctx, replay, transaction, toolCallId);
+      const generated = await summarizeOpenTransaction(ctx, replay, transaction, toolCallId, agentRequestShape(pi));
       summary = generated.summary;
       summaryUsage = generated.usage;
     }
@@ -210,7 +221,7 @@ function createEndTool(pi: ExtensionAPI) {
     pi.appendEntry(TRANSACTION_ENTRY_TYPE, event);
     updateStatus(ctx);
     return {
-      content: [{ type: 'text', text: `Closed transaction ${event.transactionId} with disposition ${disposition}` }],
+      content: [{ type: 'text', text: closedTransactionText(event) }],
       details: event,
       ...(summaryUsage && { usage: summaryUsage }),
     };
@@ -260,7 +271,11 @@ export default function contextTransactionsExtension(pi: ExtensionAPI): void {
   pi.registerTool(contextSearchTool);
   pi.registerTool(contextRecallTool);
 
+  // Benchmark switch for the context hook only. Summary and session-compaction
+  // paths still project, so runs using those paths are not a full ablation.
+  const projectionEnabled = process.env.PI_MEMENTO_PROJECTION !== 'off';
   pi.on('context', (event, ctx) => {
+    if (!projectionEnabled) return { messages: event.messages };
     const projected = projectMessages(event.messages, currentTransactions(ctx));
     if (!projected.safe) ctx.ui.setStatus(STATUS_KEY, 'transactions: projection disabled');
     return { messages: projected.messages };

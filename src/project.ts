@@ -1,5 +1,6 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { ToolCall } from '@earendil-works/pi-ai';
+import { assertNever } from './assert.js';
 import type {
   ReplayResult,
   TransactionDiagnostic,
@@ -10,11 +11,14 @@ import type {
 interface LocatedTransaction {
   record: TransactionRecord;
   start: number;
+  /** Index of the transaction_begin result; the body starts right after it. */
+  beginResult: number;
+  /** Index of the transaction_end call (equals `end` while still open). */
+  endCall: number;
+  /** One past the transaction_end result (or the end of the context while open). */
   end: number;
   children: LocatedTransaction[];
 }
-
-type TransactionProjectionMessage = Extract<AgentMessage, { role: 'custom' }>;
 
 export interface ProjectionResult {
   messages: AgentMessage[];
@@ -106,33 +110,57 @@ function locateRecord(
   return {
     record,
     start: beginCall,
+    beginResult,
+    endCall: record.end ? endCall : messages.length,
     end: record.end ? endResult + 1 : messages.length,
     children,
   };
 }
 
-const PROJECTION_TITLES = {
-  summary: 'Transaction summary',
-  result: 'Transaction result',
-  carryforward: 'Carryforward',
-  next: 'Next action',
-} as const;
+/**
+ * The transaction_end result text: what the agent sees for a closed
+ * transaction. The tool returns exactly this, and the projection renders the
+ * stored end result from the end event with it, so the agent keeps seeing the
+ * same bytes on every later request.
+ */
+export function closedTransactionText(end: TransactionEndEvent): string {
+  const lines = [`Closed transaction ${end.transactionId} with disposition ${end.disposition}`];
+  switch (end.disposition) {
+    case 'commit':
+      return lines[0]!;
+    case 'compact':
+      lines.push(`Its body is replaced in your context by this summary:\n${end.summary}`);
+      break;
+    case 'squash':
+      lines.push(`Its body is replaced in your context by this result:\n${end.result}`);
+      break;
+    case 'revert':
+      lines.push('Its body is removed from your context.');
+      break;
+    default:
+      return assertNever(end);
+  }
+  if (end.carryforward) lines.push(`Carryforward: ${end.carryforward}`);
+  if (end.next) lines.push(`Next action: ${end.next}`);
+  return lines.join('\n');
+}
 
-function syntheticMessage(
-  label: keyof typeof PROJECTION_TITLES,
-  content: string,
-  end: TransactionEndEvent,
-  timestamp: number,
-): TransactionProjectionMessage {
-  const title = PROJECTION_TITLES[label];
-  return {
-    role: 'custom',
-    customType: 'context-transaction-projection',
-    content: `[${title}: ${content}]`,
-    display: false,
-    details: { transactionId: end.transactionId, kind: label },
-    timestamp,
-  };
+function messageText(message: AgentMessage): string | undefined {
+  if (message.role !== 'toolResult' || message.content.length !== 1) return undefined;
+  const [part] = message.content;
+  return part?.type === 'text' ? part.text : undefined;
+}
+
+/**
+ * The stored end result, rendered with the retained content. Sessions written
+ * by this version already store exactly that text, so the original object is
+ * returned (visibility tracks messages by identity); older sessions stored a
+ * bare acknowledgement and get a copy.
+ */
+function renderEndResult(message: AgentMessage, end: TransactionEndEvent): AgentMessage {
+  const text = closedTransactionText(end);
+  if (message.role !== 'toolResult' || messageText(message) === text) return message;
+  return { ...message, content: [{ type: 'text', text }] };
 }
 
 function renderContainer(
@@ -153,26 +181,24 @@ function renderContainer(
   return output;
 }
 
+/**
+ * A closed transaction keeps its boundary turns, so the agent can see that it
+ * opened and closed it: the transaction_begin call and result, then the
+ * transaction_end call and a result that carries what the disposition retains.
+ * Only the body between them is dropped (commit keeps it). Without the
+ * boundaries the takeaway reads like an unexplained message and the agent
+ * tends to redo the work it just closed.
+ */
 function renderTransaction(messages: readonly AgentMessage[], located: LocatedTransaction): AgentMessage[] {
-  const { record, start, end, children } = located;
-  const projectedRaw = renderContainer(messages, start, end, children);
-  if (!record.end || record.end.disposition === 'commit') return projectedRaw;
-
-  const timestamp = messages[end - 1]?.timestamp ?? Date.now();
-  const replacement: AgentMessage[] = [];
-  if (record.end.disposition === 'compact' && record.end.summary) {
-    replacement.push(syntheticMessage('summary', record.end.summary, record.end, timestamp));
-  }
-  if (record.end.disposition === 'squash' && record.end.result) {
-    replacement.push(syntheticMessage('result', record.end.result, record.end, timestamp));
-  }
-  if (record.end.carryforward) {
-    replacement.push(syntheticMessage('carryforward', record.end.carryforward, record.end, timestamp));
-  }
-  if (record.end.next) {
-    replacement.push(syntheticMessage('next', record.end.next, record.end, timestamp));
-  }
-  return replacement;
+  const { record, start, beginResult, endCall, end, children } = located;
+  if (!record.end || record.end.disposition === 'commit') return renderContainer(messages, start, end, children);
+  const endResult = messages[end - 1];
+  if (!endResult) return renderContainer(messages, start, end, children);
+  return [
+    ...messages.slice(start, beginResult + 1),
+    ...messages.slice(endCall, end - 1),
+    renderEndResult(endResult, record.end),
+  ];
 }
 
 export function projectMessages(messages: readonly AgentMessage[], replay: ReplayResult): ProjectionResult {

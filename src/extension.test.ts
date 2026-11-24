@@ -168,6 +168,9 @@ function createHarness(initialEntries: SessionEntry[] = []): Harness {
         data,
       });
     },
+    getAllTools: () => [...tools.values()].map(({ name, description, parameters }) => ({ name, description, parameters })),
+    getActiveTools: () => [...tools.keys()],
+    getThinkingLevel: () => 'off',
   } as unknown as ExtensionAPI;
   contextTransactionsExtension(pi);
   return { tools, handlers, appended, entries };
@@ -190,11 +193,15 @@ function toolContext(
   complete?: () => Promise<AssistantMessage>,
 ): { ctx: ExtensionContext; statuses: StatusCall[] } {
   const statuses: StatusCall[] = [];
+  const modelCall =
+    complete ?? (() => Promise.reject(new Error('the model should not have been called')));
   const ctx = {
     sessionManager: {
       getBranch: () => harness.entries,
       getLeafEntry: () => leaf,
+      getSessionId: () => 'session-1',
     },
+    getSystemPrompt: () => 'agent system prompt',
     ui: {
       setStatus: (key: string, text?: string) => {
         statuses.push({ key, text });
@@ -203,8 +210,11 @@ function toolContext(
     model: fakeModel(),
     modelRegistry: {
       hasConfiguredAuth: () => true,
-      complete:
-        complete ?? (() => Promise.reject(new Error('modelRegistry.complete should not have been called'))),
+      complete: modelCall,
+      getProvider: () => ({
+        streamSimple: () => ({ result: modelCall }),
+      }),
+      getProviderAuth: () => Promise.resolve({ auth: { apiKey: 'test-key' } }),
     },
   } as unknown as ExtensionContext;
   return { ctx, statuses };
@@ -224,6 +234,9 @@ function messageText(messages: readonly AgentMessage[]): string {
       }
       if (message.role === 'assistant') {
         return message.content.filter((part) => part.type === 'text').map((part) => part.text);
+      }
+      if (message.role === 'toolResult') {
+        return message.content.flatMap((part) => (part.type === 'text' ? [`${message.toolName}: ${part.text}`] : []));
       }
       return [];
     })
@@ -611,7 +624,10 @@ describe('transaction_end', () => {
       ctx,
     );
 
-    expect(resultText(result)).toBe('Closed transaction tx with disposition revert');
+    expect(resultText(result)).toBe(
+      'Closed transaction tx with disposition revert\nIts body is removed from your context.\n' +
+        'Carryforward: the BLE app fakes its checksum\nNext action: read the checksum from the firmware instead',
+    );
     expect(harness.appended).toEqual([
       {
         customType: TRANSACTION_ENTRY_TYPE,
@@ -659,7 +675,10 @@ describe('transaction_end', () => {
       ctx,
     );
 
-    expect(resultText(result)).toBe('Closed transaction tx with disposition squash');
+    expect(resultText(result)).toBe(
+      'Closed transaction tx with disposition squash\nIts body is replaced in your context by this result:\n' +
+        'final answer\nCarryforward: lesson',
+    );
     expect(harness.appended).toEqual([
       {
         customType: TRANSACTION_ENTRY_TYPE,
@@ -708,7 +727,10 @@ describe('transaction_end', () => {
       ctx,
     );
 
-    expect(resultText(result)).toBe('Closed transaction begin-call with disposition compact');
+    expect(resultText(result)).toBe(
+      'Closed transaction begin-call with disposition compact\n' +
+        'Its body is replaced in your context by this summary:\ngenerated transaction summary',
+    );
     expect(result.usage).toMatchObject({ input: 5, output: 7, totalTokens: 12 });
     expect(harness.appended).toEqual([
       {
@@ -818,10 +840,52 @@ describe('context handler', () => {
     const result = handler({ type: 'context', messages }, ctx);
 
     expect(messageText(result.messages)).toBe(
-      'hello before|[Carryforward: the pairing handshake is not GATT-based]|after the transaction',
+      'hello before|transaction_begin: ok|' +
+        'transaction_end: Closed transaction tx with disposition revert\nIts body is removed from your context.\n' +
+        'Carryforward: the pairing handshake is not GATT-based|after the transaction',
     );
     expect(messageText(result.messages)).not.toContain('reverted body secret');
     expect(statuses).toEqual([]);
+  });
+
+  it('leaves closed bodies in place when projection is switched off', () => {
+    const begin: TransactionEvent = {
+      version: 1,
+      kind: 'begin',
+      transactionId: 'tx',
+      boundaryToolCallId: 'begin-call',
+      boundaryEntryId: 'begin-entry',
+    };
+    const end: TransactionEvent = {
+      version: 1,
+      kind: 'end',
+      transactionId: 'tx',
+      disposition: 'revert',
+      carryforward: 'the pairing handshake is not GATT-based',
+      boundaryToolCallId: 'end-call',
+      boundaryEntryId: 'end-entry',
+    };
+    process.env.PI_MEMENTO_PROJECTION = 'off';
+    const harness = createHarness([
+      customEntry('begin-metadata', TRANSACTION_ENTRY_TYPE, begin),
+      customEntry('end-metadata', TRANSACTION_ENTRY_TYPE, end),
+    ]);
+    const messages: AgentMessage[] = [
+      userMessage('hello before'),
+      assistantCallMessage('begin-call', 'transaction_begin'),
+      toolResultMessage('begin-call', 'transaction_begin'),
+      assistantTextMessage('reverted body secret'),
+      assistantCallMessage('end-call', 'transaction_end'),
+      toolResultMessage('end-call', 'transaction_end'),
+      userMessage('after the transaction'),
+    ];
+    delete process.env.PI_MEMENTO_PROJECTION;
+    const { ctx } = toolContext(harness, undefined);
+
+    const handler = harness.handlers.get('context') as ContextHandler;
+    const result = handler({ type: 'context', messages }, ctx);
+
+    expect(result.messages).toEqual(messages);
   });
 
   it('returns the messages unchanged and disables projection on inconsistent metadata', () => {

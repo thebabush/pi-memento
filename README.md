@@ -50,6 +50,8 @@ transaction_status()
 | `squash`  | Replaces the body with an explicit `result` string the agent writes itself. | `result` required and non-empty; no model call. Optional `carryforward` and `next`. |
 | `revert`  | Removes the body entirely. | **Requires** a non-empty `carryforward` **and** a non-empty `next`, so a dead end leaves both its lesson and the action to take instead. |
 
+Only the body is dropped: the agent's own `transaction_begin` and `transaction_end` calls stay in context, and the `transaction_end` result carries what the disposition retains (summary, result, carryforward, next action). The agent therefore sees that it opened and closed the transaction and what came of it, instead of an unexplained takeaway, which otherwise tends to make it redo the closed work.
+
 `carryforward` is a small durable lesson or instruction that survives the projection: the one thing you want to keep even when the exploration itself is compacted, squashed, or discarded.
 
 `next` is the concrete next action to take once the transaction closes; on a revert it is required, so the abandoned approach is replaced by what to do instead rather than re-investigated.

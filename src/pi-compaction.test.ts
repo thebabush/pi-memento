@@ -227,6 +227,9 @@ function messageText(messages: readonly AgentMessage[]): string {
           ? [message.content]
           : message.content.filter((part) => part.type === 'text').map((part) => part.text);
       }
+      if (message.role === 'toolResult') {
+        return message.content.flatMap((part) => (part.type === 'text' ? [`${message.toolName}: ${part.text}`] : []));
+      }
       if (message.role === 'assistant') {
         return message.content.filter((part) => part.type === 'text').map((part) => part.text);
       }
@@ -266,7 +269,8 @@ describe('prepareProjectedCompaction', () => {
     expect(prepared).toMatchObject({ required: true, ok: true });
     if (prepared.required && prepared.ok) {
       expect(messageText(prepared.messages)).toBe(
-        'durable before|[Carryforward: Do not retry the discarded hypothesis]',
+        'durable before|transaction_begin: ok|transaction_end: Closed transaction tx with disposition revert\n' +
+          'Its body is removed from your context.\nCarryforward: Do not retry the discarded hypothesis',
       );
       expect(messageText(prepared.messages)).not.toContain('secret reverted details');
     }

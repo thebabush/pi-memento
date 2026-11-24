@@ -3,7 +3,7 @@ import type { Api, AssistantMessage, Context, Model, StopReason, TextContent } f
 import type { ExtensionContext, SessionEntry } from '@earendil-works/pi-coding-agent';
 import { describe, expect, it } from 'vitest';
 import { currentTransactions } from './session.js';
-import { generateSummary, summarizeOpenTransaction } from './summarize.js';
+import { type AgentRequestShape, generateSummary, summarizeOpenTransaction } from './summarize.js';
 import { TRANSACTION_ENTRY_TYPE, type TransactionEvent } from './types.js';
 
 let clock = 0;
@@ -107,16 +107,24 @@ function completion(content: string | TextContent[], stopReason: StopReason = 's
   };
 }
 
-type CompleteFn = (model: Model<Api>, request: Context) => Promise<AssistantMessage>;
+type CompleteFn = (
+  model: Model<Api>,
+  request: Context,
+  options?: { sessionId?: string; reasoning?: string; transport?: string; apiKey?: string },
+) => Promise<AssistantMessage>;
 
 function summaryContext(
   options: {
     model?: Model<Api> | undefined;
     hasAuth?: boolean;
     complete?: CompleteFn;
+    /** The provider's streamSimple, used by the in-place (cache-friendly) summary. */
+    streamSimple?: CompleteFn;
     entries?: SessionEntry[];
   } = {},
 ): ExtensionContext {
+  const streamSimple =
+    options.streamSimple ?? (() => Promise.reject(new Error('provider.streamSimple should not have been called')));
   return {
     model: 'model' in options ? options.model : fakeModel(),
     modelRegistry: {
@@ -124,8 +132,15 @@ function summaryContext(
       complete:
         options.complete ??
         (() => Promise.reject(new Error('modelRegistry.complete should not have been called'))),
+      getProvider: () => ({
+        streamSimple: (model: Model<Api>, request: Context, requestOptions: Parameters<CompleteFn>[2]) => ({
+          result: () => streamSimple(model, request, requestOptions),
+        }),
+      }),
+      getProviderAuth: () => Promise.resolve({ auth: { apiKey: 'test-key' } }),
     },
-    sessionManager: { getBranch: () => options.entries ?? [] },
+    sessionManager: { getBranch: () => options.entries ?? [], getSessionId: () => 'session-1' },
+    getSystemPrompt: () => 'agent system prompt',
   } as unknown as ExtensionContext;
 }
 
@@ -211,6 +226,14 @@ describe('generateSummary', () => {
       'Summarization returned an empty result',
     );
   });
+
+  it.each(['length', 'toolUse'] as const)('rejects a partial summary ending in %s', async (stopReason) => {
+    const ctx = summaryContext({ complete: () => Promise.resolve(completion('partial summary', stopReason)) });
+
+    await expect(generateSummary(ctx, { ...request, messages: [userMessage('hi')] })).rejects.toThrow(
+      'Summarization returned an incomplete result',
+    );
+  });
 });
 
 describe('summarizeOpenTransaction', () => {
@@ -261,5 +284,129 @@ describe('summarizeOpenTransaction', () => {
     await expect(summarizeOpenTransaction(ctx, replay, transaction, 'missing-call')).rejects.toThrow(
       'Could not locate the transaction body for summarization',
     );
+  });
+
+  describe('with the agent request shape', () => {
+    const agentRequest = {
+      tools: [{ name: 'bash', description: 'run a command', parameters: { type: 'object', properties: {} } }],
+      reasoning: 'medium',
+    } as unknown as AgentRequestShape;
+
+    function openTransaction(ctx: ExtensionContext) {
+      const replay = currentTransactions(ctx);
+      const transaction = replay.openStack.at(-1);
+      if (!transaction) throw new Error('expected an open transaction');
+      return { replay, transaction };
+    }
+
+    it("matches the agent's request shape to allow prefix cache reuse", async () => {
+      const calls: { request: Context; options: Parameters<CompleteFn>[2] }[] = [];
+      const ctx = summaryContext({
+        entries: openTransactionEntries(),
+        streamSimple: (_model, request, options) => {
+          calls.push({ request, options });
+          return Promise.resolve(completion('in-place summary'));
+        },
+      });
+      const { replay, transaction } = openTransaction(ctx);
+
+      const generated = await summarizeOpenTransaction(ctx, replay, transaction, 'end-call', agentRequest);
+
+      expect(generated.summary).toBe('in-place summary');
+      expect(calls).toHaveLength(1);
+      const [{ request, options }] = calls;
+      expect(request.systemPrompt).toBe('agent system prompt');
+      expect(request.tools).toEqual(agentRequest.tools);
+      expect(options).toMatchObject({ sessionId: 'session-1', reasoning: 'medium', transport: 'auto', apiKey: 'test-key' });
+      const conversation = JSON.stringify(request.messages);
+      expect(conversation).toContain('durable before text');
+      expect(conversation).toContain('inside the transaction body');
+      const [endCall, last] = request.messages.slice(-2);
+      expect(endCall).toMatchObject({ role: 'assistant' });
+      expect(JSON.stringify(endCall)).toContain('end-call');
+      expect(last).toMatchObject({ role: 'toolResult', toolCallId: 'end-call', toolName: 'transaction_end' });
+      expect(JSON.stringify(last)).toContain('Closing transaction tx');
+    });
+
+    it('falls back to an isolated summary when the model does not answer with text', async () => {
+      const requests: Context[] = [];
+      const ctx = summaryContext({
+        entries: openTransactionEntries(),
+        streamSimple: (_model, request) => {
+          requests.push(request);
+          return Promise.resolve(completion([], 'toolUse'));
+        },
+        complete: (_model, request) => {
+          requests.push(request);
+          return Promise.resolve(completion('isolated summary'));
+        },
+      });
+      const { replay, transaction } = openTransaction(ctx);
+
+      const generated = await summarizeOpenTransaction(ctx, replay, transaction, 'end-call', agentRequest);
+
+      expect(generated.summary).toBe('isolated summary');
+      expect(requests).toHaveLength(2);
+      expect(requestText(requests[1])).not.toContain('durable before text');
+      expect(generated.usage).toMatchObject({ input: 10, output: 14, totalTokens: 24 });
+      expect(generated.usage).not.toHaveProperty('reasoning');
+    });
+
+    it.each(['length', 'toolUse'] as const)('does not retain a partial in-place answer ending in %s', async (stopReason) => {
+      const partial = completion('Let me check one more thing.', stopReason);
+      if (stopReason === 'toolUse') {
+        partial.content.push({ type: 'toolCall', id: 'probe', name: 'bash', arguments: { command: 'pwd' } });
+      }
+      const ctx = summaryContext({
+        entries: openTransactionEntries(),
+        streamSimple: () => Promise.resolve(partial),
+        complete: () => Promise.resolve(completion('complete isolated summary')),
+      });
+      const { replay, transaction } = openTransaction(ctx);
+
+      const generated = await summarizeOpenTransaction(ctx, replay, transaction, 'end-call', agentRequest);
+
+      expect(generated.summary).toBe('complete isolated summary');
+      expect(generated.usage).toMatchObject({ input: 10, output: 14, totalTokens: 24 });
+    });
+
+    it('throws instead of falling back when the in-place request fails', async () => {
+      let calls = 0;
+      const ctx = summaryContext({
+        entries: openTransactionEntries(),
+        streamSimple: () => {
+          calls++;
+          return Promise.resolve(completion('partial', 'error'));
+        },
+      });
+      const { replay, transaction } = openTransaction(ctx);
+
+      await expect(summarizeOpenTransaction(ctx, replay, transaction, 'end-call', agentRequest)).rejects.toThrow(
+        'Summarization error',
+      );
+      expect(calls).toBe(1);
+    });
+
+    it('rejects an empty transaction before calling the model', async () => {
+      const begin: TransactionEvent = {
+        version: 1,
+        kind: 'begin',
+        transactionId: 'tx',
+        boundaryToolCallId: 'begin-call',
+        boundaryEntryId: 'begin-entry',
+      };
+      const ctx = summaryContext({
+        entries: linked([
+          userEntry('before', 'durable before text'),
+          ...boundaryEntries('begin-entry', 'transaction_begin', 'begin-call', begin),
+          assistantCallEntry('end-leaf', 'end-call', 'transaction_end'),
+        ]),
+      });
+      const { replay, transaction } = openTransaction(ctx);
+
+      await expect(summarizeOpenTransaction(ctx, replay, transaction, 'end-call', agentRequest)).rejects.toThrow(
+        'Cannot compact an empty transaction',
+      );
+    });
   });
 });

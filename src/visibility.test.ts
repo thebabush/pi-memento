@@ -155,7 +155,10 @@ describe('computeVisibleEntryIds', () => {
       userEntry('u2', 'after'),
     ];
 
-    expect(computeVisibleEntryIds(branch)).toEqual(new Set(['u1', 'u2']));
+    // The boundary turns stay in context. The stored end result here is a bare
+    // acknowledgement, which the projection renders as a copy carrying the
+    // retained text, so the stored entry itself counts as hidden.
+    expect(computeVisibleEntryIds(branch)).toEqual(new Set(['u1', 'tx-b-call', 'tx-b-result', 'tx-e-call', 'u2']));
   });
 
   it('keeps the body of an open transaction visible', () => {
@@ -212,7 +215,7 @@ describe('computeVisibleEntryIds', () => {
 
     // tx1's boundary messages fall entirely before the cut; that must not
     // disable projection for the tail, so tx2's revert still applies.
-    expect(computeVisibleEntryIds(branch)).toEqual(new Set(['u2', 'u3']));
+    expect(computeVisibleEntryIds(branch)).toEqual(new Set(['u2', 'tx2-b-call', 'tx2-b-result', 'tx2-e-call', 'u3']));
   });
 
   it('fails open when the projection is unsafe', () => {
