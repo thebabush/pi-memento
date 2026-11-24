@@ -1,0 +1,8 @@
+id: no-loose-types
+valid:
+  - 'let f: () => void;'
+  - 'let o: Record<string, unknown>;'
+invalid:
+  - 'let f: Function;'
+  - 'let o: Object;'
+  - 'let o: {} = x;'

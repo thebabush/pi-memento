@@ -1,0 +1,11 @@
+id: throw-error
+language: TypeScript
+severity: error
+message: Throw an Error so the stack trace survives.
+rule:
+  kind: throw_statement
+  has:
+    any:
+      - kind: string
+      - kind: template_string
+      - kind: number

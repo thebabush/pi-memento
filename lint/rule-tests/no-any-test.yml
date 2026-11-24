@@ -1,0 +1,8 @@
+id: no-any
+valid:
+  - 'let x: unknown = 1;'
+  - 'const company = "any";'
+invalid:
+  - 'let x: any = 1;'
+  - 'function f(a: any[]) {}'
+  - 'const y = z as any;'

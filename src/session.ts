@@ -20,8 +20,9 @@ export function currentTransactions(ctx: ExtensionContext): ReplayResult {
 }
 
 export function assertHealthyReplay(replay: ReplayResult): void {
-  if (replay.diagnostics.length === 0) return;
-  throw new Error(`Transaction metadata is inconsistent: ${replay.diagnostics[0]!.message}`);
+  const [first] = replay.diagnostics;
+  if (!first) return;
+  throw new Error(`Transaction metadata is inconsistent: ${first.message}`);
 }
 
 /**
@@ -40,12 +41,14 @@ export function toolCallsSinceLastBoundary(
     if (child.end) boundaryToolCallIds.set(child.end.boundaryEntryId, child.end.boundaryToolCallId);
   }
   let reference = -1;
-  for (let index = branch.length - 1; index >= 0 && reference < 0; index -= 1) {
-    if (boundaryToolCallIds.has(branch[index]!.id)) reference = index;
+  let boundaryEntry: SessionEntry | undefined;
+  for (let index = branch.length - 1; index >= 0 && !boundaryEntry; index -= 1) {
+    const entry = branch[index];
+    if (entry && boundaryToolCallIds.has(entry.id)) [reference, boundaryEntry] = [index, entry];
   }
-  if (reference < 0) return undefined;
+  if (!boundaryEntry) return undefined;
 
-  const boundaryToolCallId = boundaryToolCallIds.get(branch[reference]!.id);
+  const boundaryToolCallId = boundaryToolCallIds.get(boundaryEntry.id);
   let count = 0;
   for (const entry of branch.slice(reference + 1)) {
     if (entry.type !== 'message' || entry.message.role !== 'toolResult') continue;

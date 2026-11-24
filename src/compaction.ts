@@ -56,7 +56,8 @@ function locateInterval(
   record: TransactionRecord,
 ): { start: number; end: number } | undefined {
   const start = entryIndexes.get(record.begin.boundaryEntryId);
-  if (start === undefined || !isExclusiveBoundary(entries[start]!, record.begin.boundaryToolCallId, 'transaction_begin')) {
+  const beginEntry = start === undefined ? undefined : entries[start];
+  if (start === undefined || !beginEntry || !isExclusiveBoundary(beginEntry, record.begin.boundaryToolCallId, 'transaction_begin')) {
     return undefined;
   }
   const beginResult = findToolResultIndex(
@@ -70,10 +71,12 @@ function locateInterval(
   if (!record.end) return { start, end: entries.length };
 
   const endCall = entryIndexes.get(record.end.boundaryEntryId);
+  const endEntry = endCall === undefined ? undefined : entries[endCall];
   if (
     endCall === undefined ||
+    !endEntry ||
     endCall <= beginResult ||
-    !isExclusiveBoundary(entries[endCall]!, record.end.boundaryToolCallId, 'transaction_end')
+    !isExclusiveBoundary(endEntry, record.end.boundaryToolCallId, 'transaction_end')
   ) {
     return undefined;
   }
@@ -87,8 +90,9 @@ export function planTransactionCompaction(
   replay: ReplayResult,
   requestedFirstKeptEntryId: string,
 ): TransactionCompactionPlan {
-  if (replay.diagnostics.length > 0) {
-    return { ok: false, code: 'invalid_replay', reason: replay.diagnostics[0]!.message };
+  const [diagnostic] = replay.diagnostics;
+  if (diagnostic) {
+    return { ok: false, code: 'invalid_replay', reason: diagnostic.message };
   }
 
   const entryIndexes = new Map(entries.map((entry, index) => [entry.id, index]));

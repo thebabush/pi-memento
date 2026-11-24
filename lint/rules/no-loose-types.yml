@@ -1,0 +1,10 @@
+id: no-loose-types
+language: TypeScript
+severity: error
+message: '`Function`, `Object` and `{}` accept almost anything. Write the real type, or `unknown`.'
+rule:
+  any:
+    - kind: type_identifier
+      regex: ^(Function|Object)$
+    - kind: object_type
+      regex: ^\{\s*\}$

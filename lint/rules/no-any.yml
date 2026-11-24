@@ -1,0 +1,7 @@
+id: no-any
+language: TypeScript
+severity: error
+message: '`any` switches off type checking. Use `unknown` and narrow it.'
+rule:
+  kind: predefined_type
+  regex: ^any$

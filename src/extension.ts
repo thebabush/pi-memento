@@ -12,6 +12,7 @@ import {
 } from './session.js';
 import { type AgentRequestShape, summarizeOpenTransaction } from './summarize.js';
 import {
+  isTransactionEvent,
   TRANSACTION_ENTRY_TYPE,
   type TransactionBeginEvent,
   type TransactionDisposition,
@@ -228,7 +229,9 @@ function createEndTool(pi: ExtensionAPI) {
   },
   renderResult(result, { expanded, isPartial }, theme) {
     if (isPartial) return new Text(theme.fg('dim', 'Closing transaction…'), 0, 0);
-    const event = result.details as TransactionEndEvent;
+    // details come back from the session file, so check them rather than trust them.
+    const event = result.details;
+    if (!isTransactionEvent(event) || event.kind !== 'end') return new Text(theme.fg('success', 'transaction closed'), 0, 0);
     const retained = retainedContent(event);
     let text = theme.fg('success', `transaction ${event.disposition}`);
     if (!retained) return new Text(text, 0, 0);

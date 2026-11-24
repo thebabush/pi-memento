@@ -1,0 +1,20 @@
+id: no-unsafe-cast
+language: TypeScript
+severity: error
+message: >-
+  Unchecked `as` cast. Narrow with a type guard or `in` check instead. Allowed:
+  `as const`, `as Record<string, unknown>` after an object check, and the brand
+  constructors in src/ids.ts.
+rule:
+  any:
+    - kind: as_expression
+    - kind: type_assertion
+  not:
+    any:
+      - regex: as const$
+      - regex: as Record<string, unknown>$
+files:
+  - src/**/*.ts
+ignores:
+  - src/**/*.test.ts
+  - src/ids.ts

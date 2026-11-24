@@ -1,0 +1,9 @@
+id: no-empty-catch
+language: TypeScript
+severity: error
+message: Empty catch swallows the error. Handle it, or leave a comment saying why ignoring it is safe.
+rule:
+  kind: statement_block
+  regex: ^\{\s*\}$
+  inside:
+    kind: catch_clause

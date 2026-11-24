@@ -1,0 +1,6 @@
+id: no-console
+valid:
+  - 'ctx.ui.notify("hi");'
+invalid:
+  - 'console.log("hi");'
+  - 'console.error(err);'

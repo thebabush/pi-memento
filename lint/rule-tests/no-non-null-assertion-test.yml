@@ -1,0 +1,7 @@
+id: no-non-null-assertion
+valid:
+  - 'const a = b?.c;'
+  - 'if (a !== b) {}'
+invalid:
+  - 'const a = list[0]!;'
+  - 'const a = b!.c;'

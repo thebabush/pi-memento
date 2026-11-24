@@ -1,0 +1,12 @@
+id: no-non-null-assertion
+language: TypeScript
+severity: error
+message: >-
+  Non-null `!` hides a missing value. Destructure, check for undefined, or
+  iterate with entries() instead.
+rule:
+  kind: non_null_expression
+files:
+  - src/**/*.ts
+ignores:
+  - src/**/*.test.ts

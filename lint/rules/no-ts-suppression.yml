@@ -1,0 +1,7 @@
+id: no-ts-suppression
+language: TypeScript
+severity: error
+message: Do not silence the type checker. Fix the type instead.
+rule:
+  kind: comment
+  regex: '@ts-(ignore|expect-error|nocheck)'

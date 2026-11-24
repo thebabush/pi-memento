@@ -1,0 +1,7 @@
+id: no-ts-suppression
+valid:
+  - '// a normal comment'
+invalid:
+  - "// @ts-ignore\nconst a = 1;"
+  - "// @ts-expect-error wrong\nconst a = 1;"
+  - '// @ts-nocheck'

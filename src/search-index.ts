@@ -33,7 +33,7 @@ function contentText(content: unknown): string {
 export function searchableText(entry: SessionEntry): SearchableText | undefined {
   switch (entry.type) {
     case 'message': {
-      const text = contentText((entry.message as { content?: unknown }).content);
+      const text = contentText('content' in entry.message ? entry.message.content : undefined);
       return text.trim().length > 0 ? { role: entry.message.role, text } : undefined;
     }
     case 'branch_summary':
@@ -138,7 +138,8 @@ function parseJsonObject(line: string): Record<string, unknown> | undefined {
   return undefined;
 }
 
-function isSessionEntryLike(value: Record<string, unknown>): boolean {
+/** Shallow shape check at the file boundary; entry bodies stay as pi wrote them. */
+function isSessionEntryLike(value: Record<string, unknown>): value is Record<string, unknown> & SessionEntry {
   return (
     typeof value.type === 'string' &&
     typeof value.id === 'string' &&
@@ -184,7 +185,7 @@ export function readSessionFileEntries(filePath: string): ParsedSessionFile | un
     // A torn last line from a concurrent writer (or a corrupt line) stops the
     // scan without advancing the high-water mark past it.
     if (!parsed || !isSessionEntryLike(parsed)) break;
-    entries.push(parsed as unknown as SessionEntry);
+    entries.push(parsed);
   }
 
   return { sessionId: asSessionId(header.id), fileSize, entries };

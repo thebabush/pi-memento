@@ -1,0 +1,8 @@
+id: no-empty-catch
+valid:
+  - "try { f(); } catch {\n  // Torn line; the caller stops at it.\n}"
+  - 'try { f(); } catch (e) { g(e); }'
+  - 'function f() {}'
+invalid:
+  - 'try { f(); } catch {}'
+  - "try { f(); } catch (e) {\n}"

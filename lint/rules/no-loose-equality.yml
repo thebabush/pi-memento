@@ -1,0 +1,9 @@
+id: no-loose-equality
+language: TypeScript
+severity: error
+message: Use === or !==.
+rule:
+  kind: binary_expression
+  has:
+    field: operator
+    regex: ^(==|!=)$

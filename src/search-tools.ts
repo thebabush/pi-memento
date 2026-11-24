@@ -460,6 +460,7 @@ export const contextRecallTool = defineTool({
     syncEntries(db, currentSessionId, ctx.sessionManager.getEntries());
 
     if (rawEntryId !== undefined) return recallEntry(db, sessionId, asEntryId(rawEntryId));
-    return recallTransaction(db, ctx, sessionId, asTransactionId(rawTransactionId!));
+    if (rawTransactionId === undefined) throw new Error('provide exactly one of entryId or transactionId');
+    return recallTransaction(db, ctx, sessionId, asTransactionId(rawTransactionId));
   },
 });

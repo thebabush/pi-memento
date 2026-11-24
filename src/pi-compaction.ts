@@ -53,11 +53,12 @@ export function prepareProjectedCompaction(event: SessionBeforeCompactEvent): Pr
   if (!plan.ok) return { required: true, ok: false, reason: plan.reason };
 
   const prefixReplay = replayTransactions(transactionEvents(plan.prefixEntries));
-  if (prefixReplay.openStack.length > 0) {
+  const splitTransaction = prefixReplay.openStack.at(-1);
+  if (splitTransaction) {
     return {
       required: true,
       ok: false,
-      reason: `Transaction-safe compaction unexpectedly split open transaction ${prefixReplay.openStack.at(-1)!.transactionId}`,
+      reason: `Transaction-safe compaction unexpectedly split open transaction ${splitTransaction.transactionId}`,
     };
   }
 

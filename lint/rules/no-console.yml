@@ -1,0 +1,10 @@
+id: no-console
+language: TypeScript
+severity: error
+message: The extension runs inside pi's TUI. Report through ctx.ui or tool results, not console.
+rule:
+  pattern: console.$METHOD($$$ARGS)
+files:
+  - src/**/*.ts
+ignores:
+  - src/**/*.test.ts

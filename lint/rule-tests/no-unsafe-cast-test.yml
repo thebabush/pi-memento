@@ -1,0 +1,8 @@
+id: no-unsafe-cast
+valid:
+  - "const k = ['a'] as const;"
+  - 'const o = value as Record<string, unknown>;'
+invalid:
+  - 'const e = value as Event;'
+  - 'const e = value as unknown as Event;'
+  - 'const e = <Event>value;'

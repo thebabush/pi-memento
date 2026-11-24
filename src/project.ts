@@ -124,10 +124,11 @@ function locateRecord(
  * same bytes on every later request.
  */
 export function closedTransactionText(end: TransactionEndEvent): string {
-  const lines = [`Closed transaction ${end.transactionId} with disposition ${end.disposition}`];
+  const header = `Closed transaction ${end.transactionId} with disposition ${end.disposition}`;
+  const lines = [header];
   switch (end.disposition) {
     case 'commit':
-      return lines[0]!;
+      return header;
     case 'compact':
       lines.push(`Its body is replaced in your context by this summary:\n${end.summary}`);
       break;

@@ -1,0 +1,7 @@
+id: throw-error
+valid:
+  - 'throw new Error("bad");'
+  - 'throw error;'
+invalid:
+  - 'throw "bad";'
+  - 'throw `bad ${x}`;'

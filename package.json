@@ -36,6 +36,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "check": "tsc -p tsconfig.json --noEmit",
+    "lint": "ast-grep scan && ast-grep test --skip-snapshot-tests",
     "memento": "./bin/memento",
     "test": "vitest run src"
   },
@@ -46,6 +47,7 @@
     "@earendil-works/pi-tui": "0.84.3"
   },
   "devDependencies": {
+    "@ast-grep/cli": "0.51.3",
     "@types/node": "^24.3.0",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"

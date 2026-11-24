@@ -1,0 +1,7 @@
+id: no-loose-equality
+valid:
+  - 'if (a === b) {}'
+  - 'if (a !== b) {}'
+invalid:
+  - 'if (a == b) {}'
+  - 'if (a != null) {}'
