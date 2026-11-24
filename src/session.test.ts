@@ -1,6 +1,7 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { ExtensionContext, SessionEntry } from '@earendil-works/pi-coding-agent';
 import { describe, expect, it } from 'vitest';
+import { asEntryId, asToolCallId, asTransactionId } from './ids.js';
 import { replayTransactions } from './replay.js';
 import {
   assertExclusiveBoundary,
@@ -86,17 +87,17 @@ describe('transactionEvents', () => {
   const begin: TransactionEvent = {
     version: 1,
     kind: 'begin',
-    transactionId: 'tx',
-    boundaryToolCallId: 'begin-call',
-    boundaryEntryId: 'begin-entry',
+    transactionId: asTransactionId('tx'),
+    boundaryToolCallId: asToolCallId('begin-call'),
+    boundaryEntryId: asEntryId('begin-entry'),
   };
   const end: TransactionEvent = {
     version: 1,
     kind: 'end',
-    transactionId: 'tx',
+    transactionId: asTransactionId('tx'),
     disposition: 'commit',
-    boundaryToolCallId: 'end-call',
-    boundaryEntryId: 'end-entry',
+    boundaryToolCallId: asToolCallId('end-call'),
+    boundaryEntryId: asEntryId('end-entry'),
   };
 
   it('returns nothing for an empty branch', () => {
@@ -130,8 +131,12 @@ describe('assertHealthyReplay', () => {
 
   it('throws with the first diagnostic message', () => {
     const replay = replayWith([
-      { code: 'unknown_end', message: 'transaction ghost ends without a matching begin', transactionId: 'ghost' },
-      { code: 'non_lifo_end', message: 'later diagnostic', transactionId: 'other' },
+      {
+        code: 'unknown_end',
+        message: 'transaction ghost ends without a matching begin',
+        transactionId: asTransactionId('ghost'),
+      },
+      { code: 'non_lifo_end', message: 'later diagnostic', transactionId: asTransactionId('other') },
     ]);
 
     expect(() => assertHealthyReplay(replay)).toThrow(
@@ -147,11 +152,11 @@ describe('assertExclusiveBoundary', () => {
       toolCall('call-1', 'transaction_begin'),
     ]);
 
-    expect(assertExclusiveBoundary(contextWithLeaf(leaf), 'call-1', 'transaction_begin')).toBe('leaf');
+    expect(assertExclusiveBoundary(contextWithLeaf(leaf), asToolCallId('call-1'), 'transaction_begin')).toBe('leaf');
   });
 
   it('throws when there is no leaf entry', () => {
-    expect(() => assertExclusiveBoundary(contextWithLeaf(undefined), 'call-1', 'transaction_begin')).toThrow(
+    expect(() => assertExclusiveBoundary(contextWithLeaf(undefined), asToolCallId('call-1'), 'transaction_begin')).toThrow(
       'transaction_begin must be called from a persisted assistant message',
     );
   });
@@ -159,7 +164,7 @@ describe('assertExclusiveBoundary', () => {
   it('throws when the leaf is not an assistant message', () => {
     const leaf = userEntry('leaf', 'not an assistant message');
 
-    expect(() => assertExclusiveBoundary(contextWithLeaf(leaf), 'call-1', 'transaction_begin')).toThrow(
+    expect(() => assertExclusiveBoundary(contextWithLeaf(leaf), asToolCallId('call-1'), 'transaction_begin')).toThrow(
       'transaction_begin must be called from a persisted assistant message',
     );
   });
@@ -167,7 +172,7 @@ describe('assertExclusiveBoundary', () => {
   it('throws when the leaf is not a message entry', () => {
     const leaf = customEntry('leaf', TRANSACTION_ENTRY_TYPE, undefined);
 
-    expect(() => assertExclusiveBoundary(contextWithLeaf(leaf), 'call-1', 'transaction_begin')).toThrow(
+    expect(() => assertExclusiveBoundary(contextWithLeaf(leaf), asToolCallId('call-1'), 'transaction_begin')).toThrow(
       'transaction_begin must be called from a persisted assistant message',
     );
   });
@@ -178,7 +183,7 @@ describe('assertExclusiveBoundary', () => {
       toolCall('call-2', 'read_file'),
     ]);
 
-    expect(() => assertExclusiveBoundary(contextWithLeaf(leaf), 'call-1', 'transaction_begin')).toThrow(
+    expect(() => assertExclusiveBoundary(contextWithLeaf(leaf), asToolCallId('call-1'), 'transaction_begin')).toThrow(
       'transaction_begin must be the only tool call in its assistant message; call it again by itself',
     );
   });
@@ -186,7 +191,7 @@ describe('assertExclusiveBoundary', () => {
   it('throws when the tool call id does not match', () => {
     const leaf = assistantEntry('leaf', [toolCall('other-call', 'transaction_begin')]);
 
-    expect(() => assertExclusiveBoundary(contextWithLeaf(leaf), 'call-1', 'transaction_begin')).toThrow(
+    expect(() => assertExclusiveBoundary(contextWithLeaf(leaf), asToolCallId('call-1'), 'transaction_begin')).toThrow(
       'transaction_begin must be the only tool call in its assistant message',
     );
   });
@@ -194,7 +199,7 @@ describe('assertExclusiveBoundary', () => {
   it('throws when the tool name does not match', () => {
     const leaf = assistantEntry('leaf', [toolCall('call-1', 'transaction_begin')]);
 
-    expect(() => assertExclusiveBoundary(contextWithLeaf(leaf), 'call-1', 'transaction_end')).toThrow(
+    expect(() => assertExclusiveBoundary(contextWithLeaf(leaf), asToolCallId('call-1'), 'transaction_end')).toThrow(
       'transaction_end must be the only tool call in its assistant message',
     );
   });
@@ -204,25 +209,25 @@ describe('toolCallsSinceLastBoundary', () => {
   const outerBegin: TransactionEvent = {
     version: 1,
     kind: 'begin',
-    transactionId: 'outer',
-    boundaryToolCallId: 'outer-begin-call',
-    boundaryEntryId: 'outer-begin',
+    transactionId: asTransactionId('outer'),
+    boundaryToolCallId: asToolCallId('outer-begin-call'),
+    boundaryEntryId: asEntryId('outer-begin'),
   };
   const innerBegin: TransactionEvent = {
     version: 1,
     kind: 'begin',
-    transactionId: 'inner',
-    parentTransactionId: 'outer',
-    boundaryToolCallId: 'inner-begin-call',
-    boundaryEntryId: 'inner-begin',
+    transactionId: asTransactionId('inner'),
+    parentTransactionId: asTransactionId('outer'),
+    boundaryToolCallId: asToolCallId('inner-begin-call'),
+    boundaryEntryId: asEntryId('inner-begin'),
   };
   const innerEnd: TransactionEvent = {
     version: 1,
     kind: 'end',
-    transactionId: 'inner',
+    transactionId: asTransactionId('inner'),
     disposition: 'commit',
-    boundaryToolCallId: 'inner-end-call',
-    boundaryEntryId: 'inner-end',
+    boundaryToolCallId: asToolCallId('inner-end-call'),
+    boundaryEntryId: asEntryId('inner-end'),
   };
 
   // Mirrors pi's append order: the assistant message holding the boundary

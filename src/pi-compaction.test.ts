@@ -6,6 +6,7 @@ import type {
   SessionEntry,
 } from '@earendil-works/pi-coding-agent';
 import { describe, expect, it } from 'vitest';
+import { asEntryId, asToolCallId, asTransactionId } from './ids.js';
 import { handleTransactionCompaction, prepareProjectedCompaction } from './pi-compaction.js';
 import { TRANSACTION_ENTRY_TYPE, type TransactionEvent } from './types.js';
 
@@ -117,18 +118,18 @@ function revertedEntries(): SessionEntry[] {
   const begin: TransactionEvent = {
     version: 1,
     kind: 'begin',
-    transactionId: 'tx',
-    boundaryToolCallId: 'begin-call',
-    boundaryEntryId: 'begin-entry',
+    transactionId: asTransactionId('tx'),
+    boundaryToolCallId: asToolCallId('begin-call'),
+    boundaryEntryId: asEntryId('begin-entry'),
   };
   const end: TransactionEvent = {
     version: 1,
     kind: 'end',
-    transactionId: 'tx',
+    transactionId: asTransactionId('tx'),
     disposition: 'revert',
     carryforward: 'do not retry the discarded hypothesis',
-    boundaryToolCallId: 'end-call',
-    boundaryEntryId: 'end-entry',
+    boundaryToolCallId: asToolCallId('end-call'),
+    boundaryEntryId: asEntryId('end-entry'),
   };
   return linked([
     userEntry('before', 'durable before'),
@@ -143,9 +144,9 @@ function openFromStartEntries(): SessionEntry[] {
   const begin: TransactionEvent = {
     version: 1,
     kind: 'begin',
-    transactionId: 'open-tx',
-    boundaryToolCallId: 'begin-call',
-    boundaryEntryId: 'begin-entry',
+    transactionId: asTransactionId('open-tx'),
+    boundaryToolCallId: asToolCallId('begin-call'),
+    boundaryEntryId: asEntryId('begin-entry'),
   };
   return linked([
     ...boundaryEntries('begin-entry', 'transaction_begin', 'begin-call', begin),
@@ -243,18 +244,18 @@ describe('prepareProjectedCompaction', () => {
     const begin: TransactionEvent = {
       version: 1,
       kind: 'begin',
-      transactionId: 'tx',
-      boundaryToolCallId: 'begin-call',
-      boundaryEntryId: 'begin-entry',
+      transactionId: asTransactionId('tx'),
+      boundaryToolCallId: asToolCallId('begin-call'),
+      boundaryEntryId: asEntryId('begin-entry'),
     };
     const end: TransactionEvent = {
       version: 1,
       kind: 'end',
-      transactionId: 'tx',
+      transactionId: asTransactionId('tx'),
       disposition: 'revert',
       carryforward: 'Do not retry the discarded hypothesis',
-      boundaryToolCallId: 'end-call',
-      boundaryEntryId: 'end-entry',
+      boundaryToolCallId: asToolCallId('end-call'),
+      boundaryEntryId: asEntryId('end-entry'),
     };
     const entries = linked([
       userEntry('before', 'durable before'),
@@ -280,9 +281,9 @@ describe('prepareProjectedCompaction', () => {
     const begin: TransactionEvent = {
       version: 1,
       kind: 'begin',
-      transactionId: 'open-tx',
-      boundaryToolCallId: 'begin-call',
-      boundaryEntryId: 'begin-entry',
+      transactionId: asTransactionId('open-tx'),
+      boundaryToolCallId: asToolCallId('begin-call'),
+      boundaryEntryId: asEntryId('begin-entry'),
     };
     const entries = linked([
       userEntry('before', 'durable before'),
@@ -303,17 +304,17 @@ describe('prepareProjectedCompaction', () => {
     const begin: TransactionEvent = {
       version: 1,
       kind: 'begin',
-      transactionId: 'tx',
-      boundaryToolCallId: 'begin-call',
-      boundaryEntryId: 'begin-entry',
+      transactionId: asTransactionId('tx'),
+      boundaryToolCallId: asToolCallId('begin-call'),
+      boundaryEntryId: asEntryId('begin-entry'),
     };
     const end: TransactionEvent = {
       version: 1,
       kind: 'end',
-      transactionId: 'tx',
+      transactionId: asTransactionId('tx'),
       disposition: 'commit',
-      boundaryToolCallId: 'end-call',
-      boundaryEntryId: 'end-entry',
+      boundaryToolCallId: asToolCallId('end-call'),
+      boundaryEntryId: asEntryId('end-entry'),
     };
     const entries = linked([
       userEntry('before', 'before'),
@@ -330,25 +331,25 @@ describe('prepareProjectedCompaction', () => {
     const begin: TransactionEvent = {
       version: 1,
       kind: 'begin',
-      transactionId: 'tx',
-      boundaryToolCallId: 'begin-call',
-      boundaryEntryId: 'begin-entry',
+      transactionId: asTransactionId('tx'),
+      boundaryToolCallId: asToolCallId('begin-call'),
+      boundaryEntryId: asEntryId('begin-entry'),
     };
     const end: TransactionEvent = {
       version: 1,
       kind: 'end',
-      transactionId: 'tx',
+      transactionId: asTransactionId('tx'),
       disposition: 'commit',
-      boundaryToolCallId: 'end-call',
-      boundaryEntryId: 'end-entry',
+      boundaryToolCallId: asToolCallId('end-call'),
+      boundaryEntryId: asEntryId('end-entry'),
     };
     const ghostEnd: TransactionEvent = {
       version: 1,
       kind: 'end',
-      transactionId: 'ghost',
+      transactionId: asTransactionId('ghost'),
       disposition: 'commit',
-      boundaryToolCallId: 'ghost-call',
-      boundaryEntryId: 'ghost-entry',
+      boundaryToolCallId: asToolCallId('ghost-call'),
+      boundaryEntryId: asEntryId('ghost-entry'),
     };
     const entries = linked([
       userEntry('before', 'before'),
@@ -380,17 +381,17 @@ describe('handleTransactionCompaction', () => {
     const begin: TransactionEvent = {
       version: 1,
       kind: 'begin',
-      transactionId: 'tx',
-      boundaryToolCallId: 'begin-call',
-      boundaryEntryId: 'begin-entry',
+      transactionId: asTransactionId('tx'),
+      boundaryToolCallId: asToolCallId('begin-call'),
+      boundaryEntryId: asEntryId('begin-entry'),
     };
     const end: TransactionEvent = {
       version: 1,
       kind: 'end',
-      transactionId: 'tx',
+      transactionId: asTransactionId('tx'),
       disposition: 'commit',
-      boundaryToolCallId: 'end-call',
-      boundaryEntryId: 'end-entry',
+      boundaryToolCallId: asToolCallId('end-call'),
+      boundaryEntryId: asEntryId('end-entry'),
     };
     const entries = linked([
       userEntry('before', 'before'),

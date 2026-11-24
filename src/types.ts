@@ -1,3 +1,5 @@
+import type { EntryId, ToolCallId, TransactionId } from './ids.js';
+
 export const TRANSACTION_ENTRY_TYPE = 'context-transaction';
 export const TRANSACTION_EVENT_VERSION = 1;
 
@@ -6,19 +8,19 @@ export type TransactionDisposition = 'commit' | 'compact' | 'squash' | 'revert';
 export interface TransactionBeginEvent {
   version: 1;
   kind: 'begin';
-  transactionId: string;
-  parentTransactionId?: string;
+  transactionId: TransactionId;
+  parentTransactionId?: TransactionId;
   purpose?: string;
-  boundaryToolCallId: string;
-  boundaryEntryId: string;
+  boundaryToolCallId: ToolCallId;
+  boundaryEntryId: EntryId;
 }
 
 interface TransactionEndEventBase {
   version: 1;
   kind: 'end';
-  transactionId: string;
-  boundaryToolCallId: string;
-  boundaryEntryId: string;
+  transactionId: TransactionId;
+  boundaryToolCallId: ToolCallId;
+  boundaryEntryId: EntryId;
 }
 
 export type TransactionEndEvent =
@@ -56,8 +58,8 @@ export type TransactionEndEvent =
 export type TransactionEvent = TransactionBeginEvent | TransactionEndEvent;
 
 export interface TransactionRecord {
-  transactionId: string;
-  parentTransactionId?: string;
+  transactionId: TransactionId;
+  parentTransactionId?: TransactionId;
   begin: TransactionBeginEvent;
   end?: TransactionEndEvent;
   children: TransactionRecord[];
@@ -72,13 +74,13 @@ export interface TransactionDiagnostic {
     | 'missing_boundary'
     | 'partial_boundary';
   message: string;
-  transactionId?: string;
+  transactionId?: TransactionId;
 }
 
 export interface ReplayResult {
   roots: TransactionRecord[];
   openStack: TransactionRecord[];
-  records: Map<string, TransactionRecord>;
+  records: Map<TransactionId, TransactionRecord>;
   diagnostics: TransactionDiagnostic[];
 }
 

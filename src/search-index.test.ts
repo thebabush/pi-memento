@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { SessionEntry, SessionHeader } from '@earendil-works/pi-coding-agent';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { asSessionId } from './ids.js';
+import { asEntryId, asSessionId, asToolCallId, asTransactionId } from './ids.js';
 import { openIndexDb, type IndexDb } from './search-db.js';
 import { syncEntries, syncProject, syncSessionFile } from './search-index.js';
 import { TRANSACTION_ENTRY_TYPE, type TransactionBeginEvent, type TransactionEndEvent } from './types.js';
@@ -100,10 +100,10 @@ function begin(transactionId: string, entryId: string, purpose?: string): Transa
   return {
     version: 1,
     kind: 'begin',
-    transactionId,
+    transactionId: asTransactionId(transactionId),
     purpose,
-    boundaryToolCallId: `${transactionId}-begin-call`,
-    boundaryEntryId: entryId,
+    boundaryToolCallId: asToolCallId(`${transactionId}-begin-call`),
+    boundaryEntryId: asEntryId(entryId),
   };
 }
 
@@ -268,12 +268,12 @@ describe('syncEntries takeaways', () => {
         endEvent({
           version: 1,
           kind: 'end',
-          transactionId: 'tx-1',
+          transactionId: asTransactionId('tx-1'),
           disposition: 'squash',
           result: 'reconnect loop was missing backoff jitter',
           carryforward: 'always add jitter to retry loops',
-          boundaryToolCallId: 'tx-1-end-call',
-          boundaryEntryId: 'end-1',
+          boundaryToolCallId: asToolCallId('tx-1-end-call'),
+          boundaryEntryId: asEntryId('end-1'),
         }),
       ),
     );
@@ -306,11 +306,11 @@ describe('syncEntries takeaways', () => {
         endEvent({
           version: 1,
           kind: 'end',
-          transactionId: 'tx-1',
+          transactionId: asTransactionId('tx-1'),
           disposition: 'revert',
           carryforward: 'the legacy parser cannot handle multiline headers',
-          boundaryToolCallId: 'tx-1-end-call',
-          boundaryEntryId: 'end-1',
+          boundaryToolCallId: asToolCallId('tx-1-end-call'),
+          boundaryEntryId: asEntryId('end-1'),
         }),
       ),
     ]);
@@ -330,12 +330,12 @@ describe('syncEntries takeaways', () => {
         endEvent({
           version: 1,
           kind: 'end',
-          transactionId: 'tx-1',
+          transactionId: asTransactionId('tx-1'),
           disposition: 'revert',
           carryforward: 'the legacy parser cannot handle multiline headers',
           next: 'switch the ingest path to the streaming parser',
-          boundaryToolCallId: 'tx-1-end-call',
-          boundaryEntryId: 'end-1',
+          boundaryToolCallId: asToolCallId('tx-1-end-call'),
+          boundaryEntryId: asEntryId('end-1'),
         }),
       ),
     ]);

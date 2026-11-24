@@ -9,6 +9,7 @@ import {
   type TransactionCompactionDetails,
   type TransactionCompactionPlan,
 } from './compaction.js';
+import { asEntryId } from './ids.js';
 import { projectMessages } from './project.js';
 import { replayTransactions } from './replay.js';
 import { transactionEvents } from './session.js';
@@ -49,7 +50,11 @@ export function prepareProjectedCompaction(event: SessionBeforeCompactEvent): Pr
   const replay = replayTransactions(transactionEvents(event.branchEntries));
   if (!requiresTransactionProjection(replay)) return { required: false };
 
-  const plan = planTransactionCompaction(event.branchEntries, replay, event.preparation.firstKeptEntryId);
+  const plan = planTransactionCompaction(
+    event.branchEntries,
+    replay,
+    asEntryId(event.preparation.firstKeptEntryId),
+  );
   if (!plan.ok) return { required: true, ok: false, reason: plan.reason };
 
   const prefixReplay = replayTransactions(transactionEvents(plan.prefixEntries));

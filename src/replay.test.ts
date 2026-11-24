@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { asEntryId, asToolCallId, asTransactionId } from './ids.js';
 import { replayTransactions } from './replay.js';
 import type { TransactionBeginEvent, TransactionEndEvent } from './types.js';
 
@@ -6,10 +7,10 @@ function begin(id: string, parentTransactionId?: string): TransactionBeginEvent 
   return {
     version: 1,
     kind: 'begin',
-    transactionId: id,
-    parentTransactionId,
-    boundaryToolCallId: `${id}-begin`,
-    boundaryEntryId: `${id}-begin-entry`,
+    transactionId: asTransactionId(id),
+    parentTransactionId: parentTransactionId === undefined ? undefined : asTransactionId(parentTransactionId),
+    boundaryToolCallId: asToolCallId(`${id}-begin`),
+    boundaryEntryId: asEntryId(`${id}-begin-entry`),
   };
 }
 
@@ -17,10 +18,10 @@ function end(id: string): TransactionEndEvent {
   return {
     version: 1,
     kind: 'end',
-    transactionId: id,
+    transactionId: asTransactionId(id),
     disposition: 'commit',
-    boundaryToolCallId: `${id}-end`,
-    boundaryEntryId: `${id}-end-entry`,
+    boundaryToolCallId: asToolCallId(`${id}-end`),
+    boundaryEntryId: asEntryId(`${id}-end-entry`),
   };
 }
 

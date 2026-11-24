@@ -1,0 +1,21 @@
+id: no-raw-id-string
+valid:
+  - 'interface A { entryId: EntryId; }'
+  - 'interface A { toolCallId?: ToolCallId | undefined; }'
+  - 'function f(rawToolCallId: string) {}'
+  - 'function f(rawEntryId?: string) {}'
+  - 'interface A { name: string; }'
+  - 'interface A { id: string; }'
+  - 'function f(entryIds: string[]) {}'
+  - 'const sessionId = asSessionId(raw);'
+invalid:
+  - 'interface A { transactionId: string; }'
+  - 'interface A { sessionId?: string; }'
+  - 'function f(toolCallId: string) {}'
+  - 'function f(entryId?: string) {}'
+  - 'type A = { parentTransactionId: string | undefined };'
+  - 'interface A { firstKeptEntryId: string; }'
+  - 'function f(endToolCallId: string) {}'
+  - 'const sessionId: string = x;'
+  - 'class C { boundaryEntryId: string; }'
+  - 'class C { constructor(private entryId: string) {} }'

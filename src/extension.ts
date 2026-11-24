@@ -1,6 +1,7 @@
 import { StringEnum, Type, type Usage } from '@earendil-works/pi-ai';
 import { defineTool, type ExtensionAPI, type ExtensionContext } from '@earendil-works/pi-coding-agent';
 import { Text } from '@earendil-works/pi-tui';
+import { asToolCallId, asTransactionId } from './ids.js';
 import { closedTransactionText, projectMessages } from './project.js';
 import { handleTransactionCompaction } from './pi-compaction.js';
 import { contextRecallTool, contextSearchTool } from './search-tools.js';
@@ -105,7 +106,8 @@ function createBeginTool(pi: ExtensionAPI) {
     ),
   }),
   executionMode: 'sequential',
-  async execute(toolCallId, params, _signal, _onUpdate, ctx) {
+  async execute(rawToolCallId, params, _signal, _onUpdate, ctx) {
+    const toolCallId = asToolCallId(rawToolCallId);
     const boundaryEntryId = assertExclusiveBoundary(ctx, toolCallId, 'transaction_begin');
     const replay = currentTransactions(ctx);
     assertHealthyReplay(replay);
@@ -114,7 +116,8 @@ function createBeginTool(pi: ExtensionAPI) {
     const event: TransactionBeginEvent = {
       version: 1,
       kind: 'begin',
-      transactionId: toolCallId,
+      // The begin call's id doubles as the transaction id.
+      transactionId: asTransactionId(toolCallId),
       ...(parent && { parentTransactionId: parent.transactionId }),
       ...(purpose && { purpose }),
       boundaryToolCallId: toolCallId,
@@ -160,7 +163,8 @@ function createEndTool(pi: ExtensionAPI) {
     ),
   }),
   executionMode: 'sequential',
-  async execute(toolCallId, params, _signal, _onUpdate, ctx) {
+  async execute(rawToolCallId, params, _signal, _onUpdate, ctx) {
+    const toolCallId = asToolCallId(rawToolCallId);
     const boundaryEntryId = assertExclusiveBoundary(ctx, toolCallId, 'transaction_end');
     const replay = currentTransactions(ctx);
     assertHealthyReplay(replay);

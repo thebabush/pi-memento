@@ -1,3 +1,4 @@
+import type { TransactionId } from './ids.js';
 import type {
   ReplayResult,
   TransactionDiagnostic,
@@ -7,7 +8,7 @@ import type {
 
 export function replayTransactions(events: readonly TransactionEvent[]): ReplayResult {
   const roots: TransactionRecord[] = [];
-  const records = new Map<string, TransactionRecord>();
+  const records = new Map<TransactionId, TransactionRecord>();
   const stack: TransactionRecord[] = [];
   const diagnostics: TransactionDiagnostic[] = [];
 

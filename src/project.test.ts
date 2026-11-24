@@ -1,5 +1,6 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { describe, expect, it } from 'vitest';
+import { asEntryId, asToolCallId, asTransactionId } from './ids.js';
 import { closedTransactionText, projectMessages } from './project.js';
 import { replayTransactions } from './replay.js';
 import type { TransactionBeginEvent, TransactionEndEvent, TransactionEvent } from './types.js';
@@ -48,10 +49,10 @@ function begin(id: string, callId: string, parentTransactionId?: string): Transa
   return {
     version: 1,
     kind: 'begin',
-    transactionId: id,
-    parentTransactionId,
-    boundaryToolCallId: callId,
-    boundaryEntryId: `entry-${callId}`,
+    transactionId: asTransactionId(id),
+    parentTransactionId: parentTransactionId === undefined ? undefined : asTransactionId(parentTransactionId),
+    boundaryToolCallId: asToolCallId(callId),
+    boundaryEntryId: asEntryId(`entry-${callId}`),
   };
 }
 
@@ -64,9 +65,9 @@ function end(
   const base = {
     version: 1,
     kind: 'end',
-    transactionId: id,
-    boundaryToolCallId: callId,
-    boundaryEntryId: `entry-${callId}`,
+    transactionId: asTransactionId(id),
+    boundaryToolCallId: asToolCallId(callId),
+    boundaryEntryId: asEntryId(`entry-${callId}`),
   } as const;
   const optional = {
     ...(extra.carryforward && { carryforward: extra.carryforward }),

@@ -1,19 +1,20 @@
 import type { SessionEntry } from '@earendil-works/pi-coding-agent';
+import { asEntryId, type EntryId, type ToolCallId } from './ids.js';
 import type { ReplayResult, TransactionRecord } from './types.js';
 
 export interface TransactionCompactionDetails {
   contextTransactions: {
     version: 1;
     projectionApplied: true;
-    requestedFirstKeptEntryId: string;
-    adjustedFirstKeptEntryId: string;
+    requestedFirstKeptEntryId: EntryId;
+    adjustedFirstKeptEntryId: EntryId;
   };
 }
 
 export type TransactionCompactionPlan =
   | {
       ok: true;
-      firstKeptEntryId: string;
+      firstKeptEntryId: EntryId;
       firstKeptIndex: number;
       prefixEntries: SessionEntry[];
       details: TransactionCompactionDetails;
@@ -26,7 +27,7 @@ export type TransactionCompactionPlan =
 
 function isExclusiveBoundary(
   entry: SessionEntry,
-  toolCallId: string,
+  toolCallId: ToolCallId,
   toolName: 'transaction_begin' | 'transaction_end',
 ): boolean {
   if (entry.type !== 'message' || entry.message.role !== 'assistant') return false;
@@ -37,7 +38,7 @@ function isExclusiveBoundary(
 function findToolResultIndex(
   entries: readonly SessionEntry[],
   afterIndex: number,
-  toolCallId: string,
+  toolCallId: ToolCallId,
   toolName: 'transaction_begin' | 'transaction_end',
 ): number {
   return entries.findIndex(
@@ -88,7 +89,7 @@ function locateInterval(
 export function planTransactionCompaction(
   entries: readonly SessionEntry[],
   replay: ReplayResult,
-  requestedFirstKeptEntryId: string,
+  requestedFirstKeptEntryId: EntryId,
 ): TransactionCompactionPlan {
   const [diagnostic] = replay.diagnostics;
   if (diagnostic) {
@@ -138,9 +139,10 @@ export function planTransactionCompaction(
     return { ok: false, code: 'missing_cut', reason: 'The adjusted compaction cut is outside the active branch' };
   }
 
+  const adjustedFirstKeptEntryId = asEntryId(adjustedEntry.id);
   return {
     ok: true,
-    firstKeptEntryId: adjustedEntry.id,
+    firstKeptEntryId: adjustedFirstKeptEntryId,
     firstKeptIndex: adjustedCut,
     prefixEntries: entries.slice(0, adjustedCut),
     details: {
@@ -148,7 +150,7 @@ export function planTransactionCompaction(
         version: 1,
         projectionApplied: true,
         requestedFirstKeptEntryId,
-        adjustedFirstKeptEntryId: adjustedEntry.id,
+        adjustedFirstKeptEntryId,
       },
     },
   };

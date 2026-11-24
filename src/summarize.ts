@@ -4,9 +4,9 @@ import {
   type AssistantMessage,
   type Context,
   type Model,
+  type SimpleStreamOptions,
   type ThinkingLevel,
   type Tool,
-  type Transport,
   type Usage,
   uuidv7,
 } from '@earendil-works/pi-ai';
@@ -16,6 +16,7 @@ import {
   serializeConversation,
   type ExtensionContext,
 } from '@earendil-works/pi-coding-agent';
+import type { ToolCallId } from './ids.js';
 import { projectMessages } from './project.js';
 import type { ReplayResult, TransactionRecord } from './types.js';
 
@@ -47,7 +48,7 @@ export interface AgentRequestShape {
   reasoning?: ThinkingLevel;
 }
 
-function containsToolCall(message: AgentMessage, toolCallId: string): boolean {
+function containsToolCall(message: AgentMessage, toolCallId: ToolCallId): boolean {
   return (
     message.role === 'assistant' &&
     message.content.some((part) => part.type === 'toolCall' && part.id === toolCallId)
@@ -58,7 +59,7 @@ export async function summarizeOpenTransaction(
   ctx: ExtensionContext,
   replay: ReplayResult,
   transaction: TransactionRecord,
-  endToolCallId: string,
+  endToolCallId: ToolCallId,
   agentRequest?: AgentRequestShape,
 ): Promise<GeneratedSummary> {
   if (!ctx.model) throw new Error('Cannot compact a transaction without an active model');
@@ -127,7 +128,7 @@ async function summarizeInPlace(
   agentRequest: AgentRequestShape,
   turn: readonly AgentMessage[],
   transaction: TransactionRecord,
-  endToolCallId: string,
+  endToolCallId: ToolCallId,
 ): Promise<{ summary?: string; usage: Usage }> {
   if (!ctx.model) throw new Error('Cannot compact a transaction without an active model');
   const purpose = transaction.begin.purpose ? ` (purpose: ${transaction.begin.purpose})` : '';
@@ -164,6 +165,10 @@ async function summarizeInPlace(
   return { ...(summary && { summary }), usage: response.usage };
 }
 
+/** pi-ai stream options the summary request sets; sessionId is pi's prompt-cache key. */
+type AgentStreamOptions = Pick<SimpleStreamOptions, 'reasoning' | 'signal'> &
+  Required<Pick<SimpleStreamOptions, 'sessionId' | 'transport'>>;
+
 /**
  * Complete a request the way the agent loop does: through the provider's
  * `streamSimple`, which maps the thinking level to the provider's own reasoning
@@ -174,7 +179,7 @@ async function completeLikeAgent(
   ctx: ExtensionContext,
   model: Model<Api>,
   context: Context,
-  options: { reasoning?: ThinkingLevel; sessionId: string; transport: Transport; signal?: AbortSignal },
+  options: AgentStreamOptions,
 ): Promise<AssistantMessage> {
   const provider = ctx.modelRegistry.getProvider(model.provider);
   const resolution = await ctx.modelRegistry.getProviderAuth(model.provider);

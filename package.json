@@ -35,7 +35,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "check": "tsc -p tsconfig.json --noEmit",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
     "lint": "ast-grep scan && ast-grep test --skip-snapshot-tests",
     "memento": "./bin/memento",
     "test": "vitest run src"

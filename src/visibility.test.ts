@@ -1,6 +1,7 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { SessionEntry } from '@earendil-works/pi-coding-agent';
 import { describe, expect, it } from 'vitest';
+import { asEntryId, asToolCallId, asTransactionId } from './ids.js';
 import { computeVisibleEntryIds } from './visibility.js';
 import { TRANSACTION_ENTRY_TYPE, type TransactionBeginEvent, type TransactionEndEvent } from './types.js';
 
@@ -83,10 +84,10 @@ function begin(transactionId: string, callId: string, parentTransactionId?: stri
   return {
     version: 1,
     kind: 'begin',
-    transactionId,
-    ...(parentTransactionId && { parentTransactionId }),
-    boundaryToolCallId: callId,
-    boundaryEntryId: `${callId}-call`,
+    transactionId: asTransactionId(transactionId),
+    ...(parentTransactionId && { parentTransactionId: asTransactionId(parentTransactionId) }),
+    boundaryToolCallId: asToolCallId(callId),
+    boundaryEntryId: asEntryId(`${callId}-call`),
   };
 }
 
@@ -99,9 +100,9 @@ function end(
   const base = {
     version: 1,
     kind: 'end',
-    transactionId,
-    boundaryToolCallId: callId,
-    boundaryEntryId: `${callId}-call`,
+    transactionId: asTransactionId(transactionId),
+    boundaryToolCallId: asToolCallId(callId),
+    boundaryEntryId: asEntryId(`${callId}-call`),
   } as const;
   switch (disposition) {
     case 'commit':

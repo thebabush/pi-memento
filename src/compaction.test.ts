@@ -2,6 +2,7 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { SessionEntry } from '@earendil-works/pi-coding-agent';
 import { describe, expect, it } from 'vitest';
 import { planTransactionCompaction } from './compaction.js';
+import { asEntryId, asToolCallId, asTransactionId } from './ids.js';
 import { replayTransactions } from './replay.js';
 import type { TransactionBeginEvent, TransactionEndEvent } from './types.js';
 
@@ -58,10 +59,10 @@ function begin(id: string, callId: string, boundaryEntryId: string, parentTransa
   return {
     version: 1,
     kind: 'begin',
-    transactionId: id,
-    parentTransactionId,
-    boundaryToolCallId: callId,
-    boundaryEntryId,
+    transactionId: asTransactionId(id),
+    parentTransactionId: parentTransactionId === undefined ? undefined : asTransactionId(parentTransactionId),
+    boundaryToolCallId: asToolCallId(callId),
+    boundaryEntryId: asEntryId(boundaryEntryId),
   };
 }
 
@@ -69,11 +70,11 @@ function end(id: string, callId: string, boundaryEntryId: string): TransactionEn
   return {
     version: 1,
     kind: 'end',
-    transactionId: id,
+    transactionId: asTransactionId(id),
     disposition: 'revert',
     carryforward: 'takeaway',
-    boundaryToolCallId: callId,
-    boundaryEntryId,
+    boundaryToolCallId: asToolCallId(callId),
+    boundaryEntryId: asEntryId(boundaryEntryId),
   };
 }
 
@@ -91,7 +92,7 @@ describe('planTransactionCompaction', () => {
       end('tx', 'end-call', 'end-entry'),
     ]);
 
-    const plan = planTransactionCompaction(entries, replay, 'kept');
+    const plan = planTransactionCompaction(entries, replay, asEntryId('kept'));
 
     expect(plan.ok).toBe(true);
     if (plan.ok) expect(plan.firstKeptEntryId).toBe('kept');
@@ -109,7 +110,7 @@ describe('planTransactionCompaction', () => {
       end('tx', 'end-call', 'end-entry'),
     ]);
 
-    const plan = planTransactionCompaction(entries, replay, 'work');
+    const plan = planTransactionCompaction(entries, replay, asEntryId('work'));
 
     expect(plan.ok).toBe(true);
     if (plan.ok) {
@@ -134,7 +135,7 @@ describe('planTransactionCompaction', () => {
       end('outer', 'outer-e-call', 'outer-e'),
     ]);
 
-    const plan = planTransactionCompaction(entries, replay, 'inner-work');
+    const plan = planTransactionCompaction(entries, replay, asEntryId('inner-work'));
 
     expect(plan.ok).toBe(true);
     if (plan.ok) expect(plan.firstKeptEntryId).toBe('outer-b');
@@ -148,7 +149,7 @@ describe('planTransactionCompaction', () => {
     ];
     const replay = replayTransactions([begin('tx', 'begin-call', 'begin-entry')]);
 
-    const plan = planTransactionCompaction(entries, replay, 'work');
+    const plan = planTransactionCompaction(entries, replay, asEntryId('work'));
 
     expect(plan.ok).toBe(true);
     if (plan.ok) expect(plan.firstKeptEntryId).toBe('begin-entry');
@@ -163,7 +164,7 @@ describe('planTransactionCompaction', () => {
       { ...begin('open-tx', 'begin-call', 'begin-entry'), purpose: 'giant refactor' },
     ]);
 
-    const plan = planTransactionCompaction(entries, replay, 'work');
+    const plan = planTransactionCompaction(entries, replay, asEntryId('work'));
 
     expect(plan).toMatchObject({ ok: false, code: 'nothing_to_compact' });
     if (!plan.ok) {
@@ -177,7 +178,7 @@ describe('planTransactionCompaction', () => {
     const entries = [user('before', 'before'), user('kept', 'kept')];
     const replay = replayTransactions([begin('tx', 'missing', 'missing-entry')]);
 
-    const plan = planTransactionCompaction(entries, replay, 'kept');
+    const plan = planTransactionCompaction(entries, replay, asEntryId('kept'));
 
     expect(plan).toMatchObject({ ok: false, code: 'invalid_boundary' });
   });

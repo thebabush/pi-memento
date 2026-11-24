@@ -1,6 +1,7 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { ToolCall } from '@earendil-works/pi-ai';
 import { assertNever } from './assert.js';
+import type { ToolCallId } from './ids.js';
 import type {
   ReplayResult,
   TransactionDiagnostic,
@@ -33,7 +34,7 @@ function toolCalls(message: AgentMessage): ToolCall[] {
 
 function findExclusiveAssistantCall(
   messages: readonly AgentMessage[],
-  toolCallId: string,
+  toolCallId: ToolCallId,
   toolName: 'transaction_begin' | 'transaction_end',
 ): number {
   return messages.findIndex((message) => {
@@ -44,7 +45,7 @@ function findExclusiveAssistantCall(
 
 function findToolResult(
   messages: readonly AgentMessage[],
-  toolCallId: string,
+  toolCallId: ToolCallId,
   toolName: 'transaction_begin' | 'transaction_end',
 ): number {
   return messages.findIndex(

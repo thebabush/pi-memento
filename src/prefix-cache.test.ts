@@ -23,6 +23,7 @@ import { Type } from '@earendil-works/pi-ai';
 import { stream } from '@earendil-works/pi-ai/api/anthropic-messages';
 import { convertToLlm } from '@earendil-works/pi-coding-agent';
 import { describe, expect, it } from 'vitest';
+import { asEntryId, asToolCallId, asTransactionId } from './ids.js';
 import { projectMessages } from './project.js';
 import { replayTransactions } from './replay.js';
 import type { TransactionBeginEvent, TransactionEndEvent, TransactionEvent } from './types.js';
@@ -103,7 +104,13 @@ function toolTurn(name: string, id: string, args: Record<string, unknown>, resul
 }
 
 function begin(id: string, callId: string): TransactionBeginEvent {
-  return { version: 1, kind: 'begin', transactionId: id, boundaryToolCallId: callId, boundaryEntryId: `entry-${callId}` };
+  return {
+    version: 1,
+    kind: 'begin',
+    transactionId: asTransactionId(id),
+    boundaryToolCallId: asToolCallId(callId),
+    boundaryEntryId: asEntryId(`entry-${callId}`),
+  };
 }
 
 function end(
@@ -112,7 +119,13 @@ function end(
   disposition: TransactionEndEvent['disposition'],
   extra: { summary?: string; result?: string; carryforward?: string } = {},
 ): TransactionEndEvent {
-  const base = { version: 1, kind: 'end', transactionId: id, boundaryToolCallId: callId, boundaryEntryId: `entry-${callId}` } as const;
+  const base = {
+    version: 1,
+    kind: 'end',
+    transactionId: asTransactionId(id),
+    boundaryToolCallId: asToolCallId(callId),
+    boundaryEntryId: asEntryId(`entry-${callId}`),
+  } as const;
   switch (disposition) {
     case 'commit':
       return { ...base, disposition };

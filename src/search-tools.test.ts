@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { AgentMessage, AgentToolResult } from '@earendil-works/pi-agent-core';
 import type { ExtensionContext, SessionEntry, SessionHeader } from '@earendil-works/pi-coding-agent';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { asSessionId } from './ids.js';
+import { asEntryId, asSessionId, asToolCallId, asTransactionId } from './ids.js';
 import { closeIndexDb, openIndexDb } from './search-db.js';
 import { syncEntries } from './search-index.js';
 import { closeSearchDbs, contextRecallTool, contextSearchTool } from './search-tools.js';
@@ -100,10 +100,10 @@ function begin(transactionId: string, callId: string, purpose?: string): Transac
   return {
     version: 1,
     kind: 'begin',
-    transactionId,
+    transactionId: asTransactionId(transactionId),
     ...(purpose && { purpose }),
-    boundaryToolCallId: callId,
-    boundaryEntryId: `${callId}-call`,
+    boundaryToolCallId: asToolCallId(callId),
+    boundaryEntryId: asEntryId(`${callId}-call`),
   };
 }
 
@@ -116,13 +116,13 @@ function squashEnd(
   return {
     version: 1,
     kind: 'end',
-    transactionId,
+    transactionId: asTransactionId(transactionId),
     disposition: 'squash',
     result,
     ...(extra.carryforward && { carryforward: extra.carryforward }),
     ...(extra.next && { next: extra.next }),
-    boundaryToolCallId: callId,
-    boundaryEntryId: `${callId}-call`,
+    boundaryToolCallId: asToolCallId(callId),
+    boundaryEntryId: asEntryId(`${callId}-call`),
   };
 }
 

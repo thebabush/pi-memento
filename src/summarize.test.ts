@@ -2,6 +2,7 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { Api, AssistantMessage, Context, Model, StopReason, TextContent } from '@earendil-works/pi-ai';
 import type { ExtensionContext, SessionEntry } from '@earendil-works/pi-coding-agent';
 import { describe, expect, it } from 'vitest';
+import { asEntryId, asToolCallId, asTransactionId } from './ids.js';
 import { currentTransactions } from './session.js';
 import { type AgentRequestShape, generateSummary, summarizeOpenTransaction } from './summarize.js';
 import { TRANSACTION_ENTRY_TYPE, type TransactionEvent } from './types.js';
@@ -241,9 +242,9 @@ describe('summarizeOpenTransaction', () => {
     const begin: TransactionEvent = {
       version: 1,
       kind: 'begin',
-      transactionId: 'tx',
-      boundaryToolCallId: 'begin-call',
-      boundaryEntryId: 'begin-entry',
+      transactionId: asTransactionId('tx'),
+      boundaryToolCallId: asToolCallId('begin-call'),
+      boundaryEntryId: asEntryId('begin-entry'),
     };
     return linked([
       userEntry('before', 'durable before text'),
@@ -266,7 +267,7 @@ describe('summarizeOpenTransaction', () => {
     const transaction = replay.openStack.at(-1);
     if (!transaction) throw new Error('expected an open transaction');
 
-    const generated = await summarizeOpenTransaction(ctx, replay, transaction, 'end-call');
+    const generated = await summarizeOpenTransaction(ctx, replay, transaction, asToolCallId('end-call'));
 
     expect(generated.summary).toBe('the transaction summary');
     if (!captured) throw new Error('expected the completion request to be captured');
@@ -281,7 +282,7 @@ describe('summarizeOpenTransaction', () => {
     const transaction = replay.openStack.at(-1);
     if (!transaction) throw new Error('expected an open transaction');
 
-    await expect(summarizeOpenTransaction(ctx, replay, transaction, 'missing-call')).rejects.toThrow(
+    await expect(summarizeOpenTransaction(ctx, replay, transaction, asToolCallId('missing-call'))).rejects.toThrow(
       'Could not locate the transaction body for summarization',
     );
   });
@@ -310,11 +311,13 @@ describe('summarizeOpenTransaction', () => {
       });
       const { replay, transaction } = openTransaction(ctx);
 
-      const generated = await summarizeOpenTransaction(ctx, replay, transaction, 'end-call', agentRequest);
+      const generated = await summarizeOpenTransaction(ctx, replay, transaction, asToolCallId('end-call'), agentRequest);
 
       expect(generated.summary).toBe('in-place summary');
       expect(calls).toHaveLength(1);
-      const [{ request, options }] = calls;
+      const [call] = calls;
+      if (!call) throw new Error('expected the in-place request to be captured');
+      const { request, options } = call;
       expect(request.systemPrompt).toBe('agent system prompt');
       expect(request.tools).toEqual(agentRequest.tools);
       expect(options).toMatchObject({ sessionId: 'session-1', reasoning: 'medium', transport: 'auto', apiKey: 'test-key' });
@@ -343,11 +346,13 @@ describe('summarizeOpenTransaction', () => {
       });
       const { replay, transaction } = openTransaction(ctx);
 
-      const generated = await summarizeOpenTransaction(ctx, replay, transaction, 'end-call', agentRequest);
+      const generated = await summarizeOpenTransaction(ctx, replay, transaction, asToolCallId('end-call'), agentRequest);
 
       expect(generated.summary).toBe('isolated summary');
       expect(requests).toHaveLength(2);
-      expect(requestText(requests[1])).not.toContain('durable before text');
+      const isolated = requests[1];
+      if (!isolated) throw new Error('expected the isolated request to be captured');
+      expect(requestText(isolated)).not.toContain('durable before text');
       expect(generated.usage).toMatchObject({ input: 10, output: 14, totalTokens: 24 });
       expect(generated.usage).not.toHaveProperty('reasoning');
     });
@@ -364,7 +369,7 @@ describe('summarizeOpenTransaction', () => {
       });
       const { replay, transaction } = openTransaction(ctx);
 
-      const generated = await summarizeOpenTransaction(ctx, replay, transaction, 'end-call', agentRequest);
+      const generated = await summarizeOpenTransaction(ctx, replay, transaction, asToolCallId('end-call'), agentRequest);
 
       expect(generated.summary).toBe('complete isolated summary');
       expect(generated.usage).toMatchObject({ input: 10, output: 14, totalTokens: 24 });
@@ -381,7 +386,7 @@ describe('summarizeOpenTransaction', () => {
       });
       const { replay, transaction } = openTransaction(ctx);
 
-      await expect(summarizeOpenTransaction(ctx, replay, transaction, 'end-call', agentRequest)).rejects.toThrow(
+      await expect(summarizeOpenTransaction(ctx, replay, transaction, asToolCallId('end-call'), agentRequest)).rejects.toThrow(
         'Summarization error',
       );
       expect(calls).toBe(1);
@@ -391,9 +396,9 @@ describe('summarizeOpenTransaction', () => {
       const begin: TransactionEvent = {
         version: 1,
         kind: 'begin',
-        transactionId: 'tx',
-        boundaryToolCallId: 'begin-call',
-        boundaryEntryId: 'begin-entry',
+        transactionId: asTransactionId('tx'),
+        boundaryToolCallId: asToolCallId('begin-call'),
+        boundaryEntryId: asEntryId('begin-entry'),
       };
       const ctx = summaryContext({
         entries: linked([
@@ -404,7 +409,7 @@ describe('summarizeOpenTransaction', () => {
       });
       const { replay, transaction } = openTransaction(ctx);
 
-      await expect(summarizeOpenTransaction(ctx, replay, transaction, 'end-call', agentRequest)).rejects.toThrow(
+      await expect(summarizeOpenTransaction(ctx, replay, transaction, asToolCallId('end-call'), agentRequest)).rejects.toThrow(
         'Cannot compact an empty transaction',
       );
     });

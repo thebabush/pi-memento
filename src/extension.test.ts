@@ -1,8 +1,9 @@
 import type { AgentMessage, AgentToolResult } from '@earendil-works/pi-agent-core';
 import type { Api, AssistantMessage, Model, StopReason } from '@earendil-works/pi-ai';
-import type { ExtensionAPI, ExtensionContext, SessionEntry } from '@earendil-works/pi-coding-agent';
+import type { ExtensionAPI, ExtensionContext, SessionEntry, ToolInfo } from '@earendil-works/pi-coding-agent';
 import { describe, expect, it } from 'vitest';
 import contextTransactionsExtension from './extension.js';
+import { asEntryId, asToolCallId, asTransactionId } from './ids.js';
 import { TRANSACTION_ENTRY_TYPE, type TransactionEvent } from './types.js';
 
 let clock = 0;
@@ -128,6 +129,8 @@ interface AppendedEntry {
 
 interface RegisteredTool {
   name: string;
+  description: ToolInfo['description'];
+  parameters: ToolInfo['parameters'];
   promptGuidelines?: string[];
   execute: (
     toolCallId: string,
@@ -416,9 +419,9 @@ describe('transaction_begin', () => {
     const outerBegin: TransactionEvent = {
       version: 1,
       kind: 'begin',
-      transactionId: 'outer',
-      boundaryToolCallId: 'outer-call',
-      boundaryEntryId: 'outer-entry',
+      transactionId: asTransactionId('outer'),
+      boundaryToolCallId: asToolCallId('outer-call'),
+      boundaryEntryId: asEntryId('outer-entry'),
     };
     const harness = createHarness([customEntry('outer-metadata', TRANSACTION_ENTRY_TYPE, outerBegin)]);
     const leaf = assistantEntry('leaf', [toolCall('call-2', 'transaction_begin')]);
@@ -458,9 +461,9 @@ describe('transaction_end', () => {
     return {
       version: 1,
       kind: 'begin',
-      transactionId,
-      boundaryToolCallId: `${transactionId}-begin-call`,
-      boundaryEntryId: `${transactionId}-begin-entry`,
+      transactionId: asTransactionId(transactionId),
+      boundaryToolCallId: asToolCallId(`${transactionId}-begin-call`),
+      boundaryEntryId: asEntryId(`${transactionId}-begin-entry`),
     };
   }
 
@@ -700,9 +703,9 @@ describe('transaction_end', () => {
     const begin: TransactionEvent = {
       version: 1,
       kind: 'begin',
-      transactionId: 'begin-call',
-      boundaryToolCallId: 'begin-call',
-      boundaryEntryId: 'begin-entry',
+      transactionId: asTransactionId('begin-call'),
+      boundaryToolCallId: asToolCallId('begin-call'),
+      boundaryEntryId: asEntryId('begin-entry'),
     };
     return linked([
       userEntry('before', 'durable before text'),
@@ -769,18 +772,18 @@ describe('transaction_status', () => {
     const openBegin: TransactionEvent = {
       version: 1,
       kind: 'begin',
-      transactionId: 'tx-a',
+      transactionId: asTransactionId('tx-a'),
       purpose: 'find the bug',
-      boundaryToolCallId: 'begin-call',
-      boundaryEntryId: 'begin-entry',
+      boundaryToolCallId: asToolCallId('begin-call'),
+      boundaryEntryId: asEntryId('begin-entry'),
     };
     const ghostEnd: TransactionEvent = {
       version: 1,
       kind: 'end',
-      transactionId: 'ghost',
+      transactionId: asTransactionId('ghost'),
       disposition: 'commit',
-      boundaryToolCallId: 'ghost-call',
-      boundaryEntryId: 'ghost-entry',
+      boundaryToolCallId: asToolCallId('ghost-call'),
+      boundaryEntryId: asEntryId('ghost-entry'),
     };
     const harness = createHarness([
       customEntry('begin-metadata', TRANSACTION_ENTRY_TYPE, openBegin),
@@ -808,18 +811,18 @@ describe('context handler', () => {
     const begin: TransactionEvent = {
       version: 1,
       kind: 'begin',
-      transactionId: 'tx',
-      boundaryToolCallId: 'begin-call',
-      boundaryEntryId: 'begin-entry',
+      transactionId: asTransactionId('tx'),
+      boundaryToolCallId: asToolCallId('begin-call'),
+      boundaryEntryId: asEntryId('begin-entry'),
     };
     const end: TransactionEvent = {
       version: 1,
       kind: 'end',
-      transactionId: 'tx',
+      transactionId: asTransactionId('tx'),
       disposition: 'revert',
       carryforward: 'the pairing handshake is not GATT-based',
-      boundaryToolCallId: 'end-call',
-      boundaryEntryId: 'end-entry',
+      boundaryToolCallId: asToolCallId('end-call'),
+      boundaryEntryId: asEntryId('end-entry'),
     };
     const harness = createHarness([
       customEntry('begin-metadata', TRANSACTION_ENTRY_TYPE, begin),
@@ -852,18 +855,18 @@ describe('context handler', () => {
     const begin: TransactionEvent = {
       version: 1,
       kind: 'begin',
-      transactionId: 'tx',
-      boundaryToolCallId: 'begin-call',
-      boundaryEntryId: 'begin-entry',
+      transactionId: asTransactionId('tx'),
+      boundaryToolCallId: asToolCallId('begin-call'),
+      boundaryEntryId: asEntryId('begin-entry'),
     };
     const end: TransactionEvent = {
       version: 1,
       kind: 'end',
-      transactionId: 'tx',
+      transactionId: asTransactionId('tx'),
       disposition: 'revert',
       carryforward: 'the pairing handshake is not GATT-based',
-      boundaryToolCallId: 'end-call',
-      boundaryEntryId: 'end-entry',
+      boundaryToolCallId: asToolCallId('end-call'),
+      boundaryEntryId: asEntryId('end-entry'),
     };
     process.env.PI_MEMENTO_PROJECTION = 'off';
     const harness = createHarness([
@@ -892,10 +895,10 @@ describe('context handler', () => {
     const ghostEnd: TransactionEvent = {
       version: 1,
       kind: 'end',
-      transactionId: 'ghost',
+      transactionId: asTransactionId('ghost'),
       disposition: 'commit',
-      boundaryToolCallId: 'ghost-call',
-      boundaryEntryId: 'ghost-entry',
+      boundaryToolCallId: asToolCallId('ghost-call'),
+      boundaryEntryId: asEntryId('ghost-entry'),
     };
     const harness = createHarness([customEntry('ghost-metadata', TRANSACTION_ENTRY_TYPE, ghostEnd)]);
     const messages: AgentMessage[] = [userMessage('hello'), assistantTextMessage('world')];
@@ -913,10 +916,10 @@ describe('tool_result handler', () => {
   const begin: TransactionEvent = {
     version: 1,
     kind: 'begin',
-    transactionId: 'tx',
+    transactionId: asTransactionId('tx'),
     purpose: 'chase the checksum',
-    boundaryToolCallId: 'begin-call',
-    boundaryEntryId: 'begin-entry',
+    boundaryToolCallId: asToolCallId('begin-call'),
+    boundaryEntryId: asEntryId('begin-entry'),
   };
 
   function toolCallEntries(id: string): SessionEntry[] {

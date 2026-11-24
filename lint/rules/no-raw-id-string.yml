@@ -1,0 +1,38 @@
+id: no-raw-id-string
+language: TypeScript
+severity: error
+message: >-
+  Id typed as plain `string`. Use the branded type from src/ids.ts (SessionId,
+  EntryId, TransactionId, ToolCallId) and bless pi's raw strings with the as*
+  constructor at the boundary. Name a deliberately unblessed value raw*.
+rule:
+  all:
+    - any:
+        - kind: property_signature
+        - kind: public_field_definition
+        - kind: required_parameter
+        - kind: optional_parameter
+        - kind: variable_declarator
+    - any:
+        - has:
+            field: name
+            regex: ^(transactionId|parentTransactionId|entryId|sessionId|boundaryEntryId|boundaryToolCallId|toolCallId|[a-z][A-Za-z0-9]*(TransactionId|EntryId|SessionId|ToolCallId))$
+        - has:
+            field: pattern
+            regex: ^(transactionId|parentTransactionId|entryId|sessionId|boundaryEntryId|boundaryToolCallId|toolCallId|[a-z][A-Za-z0-9]*(TransactionId|EntryId|SessionId|ToolCallId))$
+    - not:
+        any:
+          - has:
+              field: name
+              regex: ^raw[A-Z]
+          - has:
+              field: pattern
+              regex: ^raw[A-Z]
+    - has:
+        field: type
+        regex: ^:\s*(string(\s*\|\s*undefined)?|undefined\s*\|\s*string)$
+files:
+  - src/**/*.ts
+ignores:
+  - src/**/*.test.ts
+  - src/ids.ts

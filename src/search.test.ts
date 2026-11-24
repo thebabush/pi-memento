@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { SessionEntry } from '@earendil-works/pi-coding-agent';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { asEntryId, asSessionId } from './ids.js';
+import { asEntryId, asSessionId, asToolCallId, asTransactionId } from './ids.js';
 import { openIndexDb, type IndexDb } from './search-db.js';
 import { syncEntries } from './search-index.js';
 import { countClosedTakeaways, isFts5QueryError, runMatchQuery, searchIndex, type SearchHit } from './search.js';
@@ -48,10 +48,10 @@ function begin(transactionId: string, entryId: string, purpose?: string): Transa
   return {
     version: 1,
     kind: 'begin',
-    transactionId,
+    transactionId: asTransactionId(transactionId),
     ...(purpose && { purpose }),
-    boundaryToolCallId: `${transactionId}-begin-call`,
-    boundaryEntryId: entryId,
+    boundaryToolCallId: asToolCallId(`${transactionId}-begin-call`),
+    boundaryEntryId: asEntryId(entryId),
   };
 }
 
@@ -64,13 +64,13 @@ function squashEnd(
   return {
     version: 1,
     kind: 'end',
-    transactionId,
+    transactionId: asTransactionId(transactionId),
     disposition: 'squash',
     result,
     ...(extra.carryforward && { carryforward: extra.carryforward }),
     ...(extra.next && { next: extra.next }),
-    boundaryToolCallId: `${transactionId}-end-call`,
-    boundaryEntryId: entryId,
+    boundaryToolCallId: asToolCallId(`${transactionId}-end-call`),
+    boundaryEntryId: asEntryId(entryId),
   };
 }
 
