@@ -104,8 +104,19 @@ Development:
 ```sh
 npm test
 npm run check
+npm run lint
 npm run build
 ```
+
+## Dashboard
+
+```sh
+./bin/memento dashboard           # http://127.0.0.1:4777 (or --port N, or PIM_DASHBOARD_PORT)
+```
+
+A read-only browser view of your pi sessions, grouped by project. Each session reads as a transcript: transactions are collapsible cards tagged with how they closed and showing the takeaway they left in context, tool calls expand to their output, and branches show as tabs. A session still being written refreshes every two seconds. The server listens on localhost only and never writes to the session files.
+
+`npm run dashboard:dev` runs the client with hot reload against a running `memento dashboard`.
 
 ## Projection & compaction safety
 

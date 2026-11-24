@@ -34,8 +34,10 @@
     ]
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json",
+    "build": "tsc -p tsconfig.json && vite build --config dash/vite.config.ts --logLevel warn",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json && tsc -p dash/tsconfig.json",
+    "dashboard": "node dist/dash/main.js",
+    "dashboard:dev": "vite --config dash/vite.config.ts",
     "lint": "ast-grep scan && ast-grep test --skip-snapshot-tests",
     "memento": "./bin/memento",
     "test": "vitest run src"
@@ -49,7 +51,10 @@
   "devDependencies": {
     "@ast-grep/cli": "0.51.3",
     "@types/node": "^24.3.0",
+    "markdown-it": "15.0.3",
+    "preact": "11.2.0",
     "typescript": "^5.9.2",
+    "vite": "8.3.8",
     "vitest": "^3.2.4"
   }
 }

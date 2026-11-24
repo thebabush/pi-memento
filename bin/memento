@@ -16,6 +16,16 @@ project_root="$(cd -P "$(dirname "$script_path")/.." && pwd)"
 pi_entry="$project_root/node_modules/@earendil-works/pi-coding-agent/dist/bundle/cli.js"
 extension_entry="$project_root/dist/index.js"
 
+if [[ "${1:-}" == "dashboard" ]]; then
+  shift
+  dash_entry="$project_root/dist/dash/main.js"
+  if [[ ! -f "$dash_entry" ]]; then
+    printf 'dashboard is not built. Run: npm --prefix %s run build\n' "$project_root" >&2
+    exit 1
+  fi
+  exec node "$dash_entry" "$@"
+fi
+
 if [[ ! -f "$pi_entry" ]]; then
   printf 'pinned pi is not installed. Run: npm --prefix %s install\n' "$project_root" >&2
   exit 1
